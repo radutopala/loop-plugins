@@ -1,0 +1,68 @@
+// cogtest: a daily multiple-choice quiz on the channel's own code.
+{
+  "id": "cogtest",
+  "name": "Cognitive test",
+  "version": "0.1.0",
+  "api": "1",
+  "capabilities": [
+    "files.read",
+    "git.read",
+    "quality.read",
+    "agent.readonly",
+    "ui.panel",
+    "ui.notify",
+    "ui.open_file",
+  ],
+  "agents": [{ "id": "generate", "read_only": true, "tools": ["submit_questions"] }],
+  "tools": [
+    {
+      "name": "submit_questions",
+      "description": "Submit the quiz's multiple-choice questions about this codebase, all in one call. Each question has 3 to 5 distinct choices with exactly one correct, an explanation that names an anchor's path, and anchors (repo-relative path plus a 1-based inclusive line range) into the code that proves the answer. On errors nothing is saved: fix them and submit all questions again.",
+      "input_schema": {
+        "type": "object",
+        "required": ["questions"],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "required": ["question", "choices", "correct_index", "explanation", "anchors"],
+              "properties": {
+                "question": { "type": "string", "minLength": 1 },
+                "choices": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 5,
+                  "items": { "type": "string", "minLength": 1 },
+                },
+                "correct_index": { "type": "integer", "minimum": 0, "maximum": 4 },
+                "explanation": { "type": "string", "minLength": 1 },
+                "anchors": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 5,
+                  "items": {
+                    "type": "object",
+                    "required": ["path", "start", "end"],
+                    "properties": {
+                      "path": { "type": "string", "minLength": 1 },
+                      "start": { "type": "integer", "minimum": 1 },
+                      "end": { "type": "integer", "minimum": 1 },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  ],
+  "actions": [{ "id": "daily" }],
+  "ui": {
+    "panels": [{ "id": "quiz", "label": "Cognitive test", "entry": "ui/quiz/index.html", "singleton": true }],
+  },
+  "resources": { "memory": "256m", "cpus": 0.5 },
+}

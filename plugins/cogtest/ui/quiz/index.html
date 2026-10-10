@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cognitive test</title>
+    <link rel="stylesheet" href="app.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="bar">
+      <nav class="tabs" role="tablist" aria-label="Views">
+        <button type="button" role="tab" data-tab="today" aria-selected="true">Today</button>
+        <button type="button" role="tab" data-tab="history" aria-selected="false">History</button>
+      </nav>
+      <div class="controls">
+        <label>
+          Model
+          <select id="model" disabled>
+            <option value="">Channel default</option>
+            <option value="sonnet">Sonnet</option>
+            <option value="opus">Opus</option>
+            <option value="haiku">Haiku</option>
+          </select>
+        </label>
+        <label>
+          Effort
+          <select id="effort" disabled>
+            <option value="">Channel default</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <button type="button" id="new-quiz" class="primary" disabled>New quiz</button>
+      </div>
+    </header>
+    <main>
+      <section id="view-today" role="tabpanel" aria-label="Today">
+        <p class="muted">Connecting to Loop…</p>
+      </section>
+      <section id="view-history" role="tabpanel" aria-label="History" hidden></section>
+    </main>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+  </body>
+</html>
