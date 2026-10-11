@@ -59,3 +59,11 @@ func (c *Client) Event(ctx context.Context, typ string, data any) error {
 func (c *Client) Notify(ctx context.Context, title, body string) error {
 	return c.Called(ctx, title, body).Error(0)
 }
+
+func (c *Client) WriteMemory(ctx context.Context, name, content string) error {
+	return c.Called(ctx, name, content).Error(0)
+}
+
+func (c *Client) DeleteMemory(ctx context.Context, name string) error {
+	return c.Called(ctx, name).Error(0)
+}
