@@ -73,3 +73,11 @@ func (c *Client) RunUI(ctx context.Context, cmd pluginsdk.UICommand) (*pluginsdk
 	r, _ := args.Get(0).(*pluginsdk.UIReply)
 	return r, args.Error(1)
 }
+
+func (c *Client) SetBadge(ctx context.Context, text, title string) error {
+	return c.Called(ctx, text, title).Error(0)
+}
+
+func (c *Client) ClearBadge(ctx context.Context) error {
+	return c.Called(ctx).Error(0)
+}
