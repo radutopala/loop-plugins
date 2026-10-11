@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"slices"
@@ -189,11 +190,12 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 	if ch.Platform != "local" {
 		return fmt.Errorf("%w (this one is %q)", ErrNotLocal, ch.Platform)
 	}
-	reasks, err := s.pickReasks(ctx, min(maxReasks, q.QuestionCount-1))
+	total := questionCount(ch, q.QuestionCount)
+	reasks, err := s.pickReasks(ctx, min(maxReasks, total-1))
 	if err != nil {
 		return err
 	}
-	count := q.QuestionCount - len(reasks)
+	count := total - len(reasks)
 	focus, err := s.plan(ctx, ch.DirPath, s.today(), count+2)
 	if err != nil {
 		return err
@@ -228,6 +230,16 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 	}
 	s.event(ctx, EventStarted, map[string]any{"quiz_id": q.ID})
 	return nil
+}
+
+// questionCount is how many questions the channel's question_count
+// setting asks for, or def without a whole number of at least one.
+func questionCount(ch *loopapi.Channel, def int) int {
+	n, ok := ch.Settings["question_count"].(float64)
+	if !ok || n < 1 || n != math.Trunc(n) {
+		return def
+	}
+	return int(n)
 }
 
 // pickReasks returns up to limit missed questions to ask again whose code

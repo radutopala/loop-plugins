@@ -2,7 +2,7 @@
 {
   "id": "cogtest",
   "name": "Cognitive test",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "api": "1",
   "capabilities": [
     "files.read",
@@ -61,6 +61,16 @@
     },
   ],
   "actions": [{ "id": "daily" }],
+  "settings": {
+    "question_count": {
+      "type": "integer",
+      "title": "Questions per quiz",
+      "description": "How many questions a new quiz asks, missed ones asked again included.",
+      "minimum": 3,
+      "maximum": 10,
+      "default": 5,
+    },
+  },
   "ui": {
     "panels": [{ "id": "quiz", "label": "Cognitive test", "entry": "ui/quiz/index.html", "singleton": true }],
   },

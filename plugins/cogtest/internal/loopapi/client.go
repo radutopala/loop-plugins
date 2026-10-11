@@ -26,6 +26,8 @@ type Channel struct {
 	Platform string `json:"platform"`
 	Model    string `json:"model"`
 	Effort   string `json:"effort"`
+	// Settings are the plugin's settings in the channel's project.
+	Settings map[string]any `json:"settings"`
 }
 
 // File is a range of lines of a file in the channel.

@@ -197,6 +197,48 @@ func (s *ServiceSuite) TestDailyStartsARun() {
 	s.Require().NotContains(prompt, "README.md")
 }
 
+func (s *ServiceSuite) TestQuestionCount() {
+	tests := []struct {
+		name     string
+		settings map[string]any
+		want     int
+	}{
+		{name: "unset", want: 5},
+		{name: "set", settings: map[string]any{"question_count": 8.0}, want: 8},
+		{name: "not a number", settings: map[string]any{"question_count": "8"}, want: 5},
+		{name: "fraction", settings: map[string]any{"question_count": 2.5}, want: 5},
+		{name: "zero", settings: map[string]any{"question_count": 0.0}, want: 5},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.Require().Equal(tt.want, questionCount(&loopapi.Channel{Settings: tt.settings}, 5))
+		})
+	}
+}
+
+func (s *ServiceSuite) TestLaunchTakesTheQuestionCountSetting() {
+	q, err := s.svc.Begin(s.ctx, "manual", true)
+	s.Require().NoError(err)
+	ch := local()
+	ch.Settings = map[string]any{"question_count": 7.0}
+	s.loop.On("Channel", mock.Anything).Return(ch, nil).Once()
+	s.loop.On("Tree", mock.Anything, "").Return([]string{"a.go"}, nil).Once()
+	s.loop.On("GitRecent", mock.Anything, 14).Return(&loopapi.GitRecent{}, nil).Once()
+	s.loop.On("Hotspots", mock.Anything, 20).Return(nil, nil).Once()
+	var prompt string
+	s.loop.On("StartRun", mock.Anything, mock.MatchedBy(func(r loopapi.RunRequest) bool {
+		prompt = r.Prompt
+		return true
+	})).Return(&loopapi.Run{RunID: "run-7"}, nil).Once()
+	s.expectEvent(EventStarted)
+
+	s.Require().NoError(s.svc.Launch(s.ctx, q))
+	got, err := s.st.Quiz(s.ctx, q.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(7, got.QuestionCount)
+	s.Require().Contains(prompt, "## Write 7 questions")
+}
+
 func (s *ServiceSuite) TestLaunchFailures() {
 	cases := []struct {
 		name    string
