@@ -81,3 +81,8 @@ func (c *Client) SetBadge(ctx context.Context, text, title string) error {
 func (c *Client) ClearBadge(ctx context.Context) error {
 	return c.Called(ctx).Error(0)
 }
+
+func (c *Client) PostCard(ctx context.Context, card, title string, data any) (string, error) {
+	args := c.Called(ctx, card, title, data)
+	return args.String(0), args.Error(1)
+}
