@@ -470,3 +470,21 @@ h2 {
 .status.error {
   color: var(--c-danger);
 }
+
+.quiz-row {
+  cursor: pointer;
+}
+
+.quiz-row:hover {
+  background: var(--c-hover);
+}
+
+.disclosure {
+  display: inline-block;
+  width: 14px;
+  color: var(--c-muted);
+}
+
+.quiz-detail > td {
+  padding: 8px 0 12px;
+}

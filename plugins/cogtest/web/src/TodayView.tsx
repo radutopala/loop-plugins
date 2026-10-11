@@ -85,7 +85,9 @@ function Stat({ value, label, title }: { value: string; label: string; title: st
   );
 }
 
-function QuestionCard({
+/** A question, answered or not. Without onAnswer it can't be answered, as
+ *  in History. */
+export function QuestionCard({
   question: q,
   number,
   onAnswer,
@@ -93,12 +95,13 @@ function QuestionCard({
 }: {
   question: Question;
   number: number;
-  onAnswer: TodayProps["onAnswer"];
+  onAnswer?: TodayProps["onAnswer"];
   onOpenFile: TodayProps["onOpenFile"];
 }) {
   const [grading, setGrading] = useState(false);
   const a = q.answer;
   const choose = async (idx: number) => {
+    if (!onAnswer) return;
     setGrading(true);
     if (!(await onAnswer(q, idx))) setGrading(false);
   };
@@ -125,13 +128,13 @@ function QuestionCard({
           // The choices are fixed for a question: their index is their key.
           // biome-ignore lint/suspicious/noArrayIndexKey: see above
           <li key={idx}>
-            <button type="button" className={choiceClass(idx)} disabled={!!a || grading} onClick={() => choose(idx)}>
+            <button type="button" className={choiceClass(idx)} disabled={!!a || grading || !onAnswer} onClick={() => choose(idx)}>
               {letter(idx)}. {text}
             </button>
           </li>
         ))}
       </ol>
-      {a && <Feedback answer={a} onOpenFile={onOpenFile} />}
+      {a ? <Feedback answer={a} onOpenFile={onOpenFile} /> : !onAnswer && <p className="muted">Not answered.</p>}
     </article>
   );
 }

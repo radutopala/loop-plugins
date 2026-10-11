@@ -59,6 +59,8 @@ var (
 	ErrNotLocal = errors.New("cogtest only runs in local channels")
 	// ErrNotFound is returned for an unknown question.
 	ErrNotFound = errors.New("question not found")
+	// ErrNoQuiz is returned for an unknown quiz.
+	ErrNoQuiz = errors.New("quiz not found")
 	// ErrBadChoice is returned for an answer that isn't one of the choices.
 	ErrBadChoice = errors.New("chosen_index is not one of the choices")
 	// ErrAnswered is returned for a second answer to a question.
@@ -546,6 +548,24 @@ func (s *Service) Current(ctx context.Context) (*QuizView, error) {
 	if err != nil {
 		return nil, err
 	}
+	return s.view(ctx, q)
+}
+
+// Quiz returns quiz id with its questions and the user's answers, or
+// ErrNoQuiz.
+func (s *Service) Quiz(ctx context.Context, id int64) (*QuizView, error) {
+	q, err := s.Store.Quiz(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrNoQuiz
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.view(ctx, q)
+}
+
+// view is quiz q as the panel sees it.
+func (s *Service) view(ctx context.Context, q *store.Quiz) (*QuizView, error) {
 	questions, err := s.Store.Questions(ctx, q.ID)
 	if err != nil {
 		return nil, err

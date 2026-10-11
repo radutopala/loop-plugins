@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /runs/{run_id}/done", s.runDone)
 	mux.HandleFunc("GET /x/quizzes/current", s.currentQuiz)
 	mux.HandleFunc("POST /x/quizzes", s.newQuiz)
+	mux.HandleFunc("GET /x/quizzes/{id}", s.getQuiz)
 	mux.HandleFunc("POST /x/attempts", s.attempt)
 	mux.HandleFunc("GET /x/history", s.history)
 	mux.HandleFunc("GET /x/settings", s.getSettings)
@@ -174,6 +176,25 @@ func (s *Server) runDone(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) currentQuiz(w http.ResponseWriter, r *http.Request) {
 	v, err := s.Quiz.Today(r.Context())
+	if err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+// getQuiz returns a past quiz with its questions and answers, for History.
+func (s *Server) getQuiz(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad quiz id")
+		return
+	}
+	v, err := s.Quiz.Quiz(r.Context(), id)
+	if errors.Is(err, quiz.ErrNoQuiz) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err != nil {
 		s.internal(w, r, err)
 		return

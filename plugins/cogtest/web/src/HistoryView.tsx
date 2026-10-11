@@ -1,8 +1,16 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { chartPoints, chartY, dayTitle, HEATMAP_WEEKS, heatmapCells, localDate, scoreText } from "./history";
-import type { Day, History } from "./types";
+import { QuestionCard } from "./TodayView";
+import type { Day, History, HistoryQuiz, Quiz } from "./types";
 
-export function HistoryView({ history }: { history: History }) {
+interface HistoryProps {
+  history: History;
+  /** Loads a past quiz with its questions and answers. */
+  loadQuiz: (id: number) => Promise<Quiz>;
+  onOpenFile: (path: string, line: number) => void;
+}
+
+export function HistoryView({ history, loadQuiz, onOpenFile }: HistoryProps) {
   const days = history.days || [];
   const quizzes = history.quizzes || [];
   const mastery = history.mastery || [];
@@ -31,11 +39,7 @@ export function HistoryView({ history }: { history: History }) {
           </thead>
           <tbody>
             {quizzes.map((q) => (
-              <tr key={q.id}>
-                <td>{q.date}</td>
-                <td title={q.error || undefined}>{q.status}</td>
-                <td>{q.status === "ready" ? scoreText(q) : "—"}</td>
-              </tr>
+              <QuizRow key={q.id} quiz={q} loadQuiz={loadQuiz} onOpenFile={onOpenFile} />
             ))}
           </tbody>
         </table>
@@ -70,6 +74,48 @@ export function HistoryView({ history }: { history: History }) {
         </table>
       )}
     </>
+  );
+}
+
+/** A past quiz's row; a ready one opens below it to its questions, what was
+ *  answered and the right answers. */
+function QuizRow({ quiz: q, loadQuiz, onOpenFile }: { quiz: HistoryQuiz } & Omit<HistoryProps, "history">) {
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<{ quiz: Quiz } | { error: string } | null>(null);
+  const ready = q.status === "ready";
+  const toggle = () => {
+    setOpen(!open);
+    // Loaded on each opening, so answers given since show.
+    if (open) return;
+    setDetail(null);
+    loadQuiz(q.id)
+      .then((quiz) => setDetail({ quiz }))
+      .catch((err) => setDetail({ error: err instanceof Error ? err.message : String(err) }));
+  };
+  return (
+    <Fragment>
+      <tr className={ready ? "quiz-row" : undefined} aria-expanded={ready ? open : undefined} onClick={ready ? toggle : undefined}>
+        <td>
+          {ready && <span className="disclosure">{open ? "▾" : "▸"}</span>}
+          {q.date}
+        </td>
+        <td title={q.error || undefined}>{q.status}</td>
+        <td>{ready ? scoreText(q) : "—"}</td>
+      </tr>
+      {open && (
+        <tr className="quiz-detail">
+          <td colSpan={3}>
+            {!detail ? (
+              <p className="muted">Loading…</p>
+            ) : "error" in detail ? (
+              <p className="error-text">Couldn't load the quiz: {detail.error}</p>
+            ) : (
+              (detail.quiz.questions || []).map((qq, i) => <QuestionCard key={qq.id} question={qq} number={i + 1} onOpenFile={onOpenFile} />)
+            )}
+          </td>
+        </tr>
+      )}
+    </Fragment>
   );
 }
 

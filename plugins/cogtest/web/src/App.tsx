@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type ApiResponse, applyTheme, Bridge, errorOf, type PluginEvent } from "./bridge";
 import { HistoryView } from "./HistoryView";
 import { TodayView } from "./TodayView";
-import type { Grade, History, Question, Settings, Today } from "./types";
+import type { Grade, History, Question, Quiz, Settings, Today } from "./types";
 
 const POLL_MS = 20000;
 
@@ -56,6 +56,14 @@ export function App({ port }: { port: Promise<MessagePort> }) {
       setHistory({ error: message(err) });
     }
   }, []);
+
+  const loadQuiz = useCallback(
+    async (id: number) => {
+      if (!bridge) throw new Error("not connected to Loop");
+      return expectOK(await bridge.api<Quiz>("GET", `quizzes/${id}`));
+    },
+    [bridge],
+  );
 
   const loadSettings = useCallback(
     async (b: Bridge) => {
@@ -247,7 +255,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
           {!history ? null : "error" in history ? (
             <p className="error-text">Couldn't load the history: {history.error}</p>
           ) : (
-            <HistoryView history={history.data} />
+            <HistoryView history={history.data} loadQuiz={loadQuiz} onOpenFile={openFile} />
           )}
         </section>
       </main>

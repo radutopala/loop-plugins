@@ -209,6 +209,19 @@ func (s *ServerSuite) TestCurrentAndAttempts() {
 	s.Require().Equal(http.StatusOK, code)
 	s.Require().Len(body["quizzes"], 1)
 	s.Require().Len(body["mastery"], 1)
+
+	// A past quiz with its questions and answers.
+	id := body["quizzes"].([]any)[0].(map[string]any)["id"].(float64)
+	code, body = s.do(http.MethodGet, "/x/quizzes/"+itoa(int64(id)), "")
+	s.Require().Equal(http.StatusOK, code)
+	answer := body["questions"].([]any)[0].(map[string]any)["answer"].(map[string]any)
+	s.Require().EqualValues(1, answer["chosen_index"])
+	s.Require().Equal("see a.go", answer["explanation"])
+	code, body = s.do(http.MethodGet, "/x/quizzes/999", "")
+	s.Require().Equal(http.StatusNotFound, code)
+	s.Require().Equal("quiz not found", body["error"])
+	code, _ = s.do(http.MethodGet, "/x/quizzes/x", "")
+	s.Require().Equal(http.StatusBadRequest, code)
 }
 
 func (s *ServerSuite) TestNewQuiz() {
@@ -262,6 +275,7 @@ func (s *ServerSuite) TestStoreFailuresAre500() {
 		{http.MethodPost, "/x/quizzes", ""},
 		{http.MethodPost, "/x/attempts", `{"question_id":1,"chosen_index":0}`},
 		{http.MethodGet, "/x/history", ""},
+		{http.MethodGet, "/x/quizzes/1", ""},
 		{http.MethodGet, "/x/settings", ""},
 		{http.MethodPut, "/x/settings", `{}`},
 		{http.MethodPost, "/runs/r1/done", `{}`},

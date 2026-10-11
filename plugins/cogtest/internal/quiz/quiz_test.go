@@ -652,6 +652,26 @@ func (s *ServiceSuite) TestCurrent() {
 	s.Require().Contains(string(b), `"correct_index":0`)
 }
 
+func (s *ServiceSuite) TestQuiz() {
+	_, err := s.svc.Quiz(s.ctx, 999)
+	s.Require().ErrorIs(err, ErrNoQuiz)
+
+	q, qs := s.readyQuiz()
+	_, err = s.svc.Answer(s.ctx, qs[0].ID, 1)
+	s.Require().NoError(err)
+	v, err := s.svc.Quiz(s.ctx, q.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(q.ID, v.ID)
+	s.Require().Equal(Score{Total: 2, Answered: 1, Correct: 0}, v.Score)
+	s.Require().Equal(1, v.Questions[0].Answer.ChosenIndex)
+	s.Require().Nil(v.Questions[1].Answer)
+
+	s.Require().NoError(s.svc.Store.Close())
+	_, err = s.svc.Quiz(s.ctx, q.ID)
+	s.Require().Error(err)
+	s.Require().NotErrorIs(err, ErrNoQuiz)
+}
+
 func (s *ServiceSuite) TestCurrentExpiresStaleGeneration() {
 	s.generating("r1")
 	s.now = s.now.Add(time.Hour)
