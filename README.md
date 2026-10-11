@@ -14,16 +14,23 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 
 ## Working on a plugin
 
+Plugins use the Go SDK in the Loop repo (`pluginsdk/`). Until it's published,
+`go.mod` replaces it with a Loop checkout next to this repo
+(`../loop/pluginsdk`), and the Docker build takes it as a named build context.
+
 ```sh
 cd plugins/cogtest
 go test ./...
 (cd web && npm ci && npm run typecheck && npm test && npm run lint)
-docker run --rm -v "$PWD":/src -w /src golangci/golangci-lint:v2.14.0 golangci-lint run ./...
-docker build -t loop-plugin-dev/cogtest:latest .
+docker run --rm -v "$PWD":/src -v "$PWD/../../../loop/pluginsdk":/loop/pluginsdk -w /src \
+  golangci/golangci-lint:v2.14.0 golangci-lint run ./...
+docker build --build-context pluginsdk=../../../loop/pluginsdk -t loop-plugin-dev/cogtest:latest .
 ```
 
 cogtest's panel is a React app in `web/`. `npm run build` bundles it into
 `web/dist/`, and the Dockerfile builds it in a Node stage and copies it to
 `/loop-plugin/ui/`.
 
-Install a local build with `loop plugin dev plugins/cogtest`.
+`main_test.go` runs the SDK's conformance check against a fake Loop.
+
+Install a local build with `loop plugin:install --dev --yes loop-plugin-dev/cogtest:latest`.

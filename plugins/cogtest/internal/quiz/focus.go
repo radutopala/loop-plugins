@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi"
+	"github.com/radutopala/loop/pluginsdk"
 )
 
 // FocusItem is a file the agent is told to read, and why.
@@ -76,7 +76,7 @@ func (s *Service) plan(ctx context.Context, dirPath, today string, size int) ([]
 		return nil, fmt.Errorf("listing the channel's files: %w", err)
 	}
 	var sources []string
-	for _, f := range tree {
+	for _, f := range tree.Files {
 		if IsSource(f) {
 			sources = append(sources, f)
 		}
@@ -116,7 +116,7 @@ func (s *Service) plan(ctx context.Context, dirPath, today string, size int) ([]
 		s.Logger.Info("skipping recent changes", "err", err)
 	} else {
 		files := slices.Clone(recent.Files)
-		slices.SortStableFunc(files, func(a, b loopapi.FileChurn) int { return b.Commits - a.Commits })
+		slices.SortStableFunc(files, func(a, b pluginsdk.FileChurn) int { return b.Commits - a.Commits })
 		budget := (size + 1) / 2
 		for _, f := range files {
 			if budget == 0 {

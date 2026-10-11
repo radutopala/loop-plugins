@@ -11,7 +11,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi"
+	"github.com/radutopala/loop/pluginsdk"
+
 	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/store"
 )
 
@@ -88,7 +89,7 @@ type rangeKey struct {
 
 // checker validates one submission, reading each anchor once.
 type checker struct {
-	loop    loopapi.Client
+	loop    pluginsdk.API
 	history map[string]bool
 	files   map[rangeKey]checkedRange
 }
@@ -207,9 +208,9 @@ func (c *checker) read(ctx context.Context, p string, start, end int) checkedRan
 	var r checkedRange
 	f, err := c.loop.File(ctx, p, start, end)
 	switch {
-	case loopapi.HasStatus(err, http.StatusNotFound):
+	case pluginsdk.HasStatus(err, http.StatusNotFound):
 		r.err = fmt.Sprintf("%s does not exist", p)
-	case loopapi.HasStatus(err, http.StatusBadRequest, http.StatusRequestedRangeNotSatisfiable, http.StatusUnprocessableEntity):
+	case pluginsdk.HasStatus(err, http.StatusBadRequest, http.StatusRequestedRangeNotSatisfiable, http.StatusUnprocessableEntity):
 		r.err = fmt.Sprintf("lines %d-%d of %s can't be read: %v", start, end, p, err)
 	case err != nil:
 		r.err = fmt.Sprintf("%s can't be read right now: %v", p, err)

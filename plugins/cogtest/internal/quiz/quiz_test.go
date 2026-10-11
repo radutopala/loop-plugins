@@ -18,8 +18,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi"
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi/loopapitest"
+	"github.com/radutopala/loop/pluginsdk"
+
+	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopmock"
 	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/store"
 )
 
@@ -39,7 +40,7 @@ type ServiceSuite struct {
 	suite.Suite
 	ctx  context.Context
 	st   *store.Store
-	loop *loopapitest.Client
+	loop *loopmock.Client
 	svc  *Service
 	now  time.Time
 	// dbPath is the store's file.
@@ -56,7 +57,7 @@ func (s *ServiceSuite) SetupTest() {
 	st, err := store.Open(s.ctx, s.dbPath)
 	s.Require().NoError(err)
 	s.st = st
-	s.loop = &loopapitest.Client{}
+	s.loop = &loopmock.Client{}
 	s.now = mustDate("2026-10-10")
 	s.svc = New(st, s.loop, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	s.svc.Now = func() time.Time { return s.now }
@@ -69,8 +70,8 @@ func (s *ServiceSuite) TearDownTest() {
 	s.Require().NoError(s.st.Close())
 }
 
-func local() *loopapi.Channel {
-	return &loopapi.Channel{ID: "c1", Name: "proj", DirPath: "/home/u/proj", Platform: "local"}
+func local() *pluginsdk.Channel {
+	return &pluginsdk.Channel{ID: "c1", Name: "proj", DirPath: "/home/u/proj", Platform: "local"}
 }
 
 // generating creates a generating quiz for run runID.
@@ -136,7 +137,7 @@ func (s *ServiceSuite) TestBeginRetriesAfterFailureAndExpiresStale() {
 // --- Daily / Launch ---
 
 func (s *ServiceSuite) TestDailyRefusesNonLocalChannels() {
-	s.loop.On("Channel", mock.Anything).Return(&loopapi.Channel{Platform: "slack"}, nil).Once()
+	s.loop.On("Channel", mock.Anything).Return(&pluginsdk.Channel{Platform: "slack"}, nil).Once()
 	s.Require().ErrorIs(s.svc.Daily(s.ctx, "schedule"), ErrNotLocal)
 	_, err := s.st.LatestQuiz(s.ctx)
 	s.Require().ErrorIs(err, store.ErrNotFound)
@@ -168,16 +169,16 @@ func (s *ServiceSuite) TestDailyStartsARun() {
 	s.now = s.now.AddDate(0, 0, 1)
 
 	s.loop.On("Channel", mock.Anything).Return(local(), nil).Twice()
-	s.loop.On("Tree", mock.Anything, "").Return([]string{"due/x.go", "hot/h.go", "churn/c.go", "README.md", "rand/r.go"}, nil).Once()
-	s.loop.On("GitRecent", mock.Anything, 14).Return(&loopapi.GitRecent{Files: []loopapi.FileChurn{
+	s.loop.On("Tree", mock.Anything, "").Return(&pluginsdk.Tree{Files: []string{"due/x.go", "hot/h.go", "churn/c.go", "README.md", "rand/r.go"}}, nil).Once()
+	s.loop.On("GitRecent", mock.Anything, 14).Return(&pluginsdk.GitRecent{Files: []pluginsdk.FileChurn{
 		{Path: "go.sum", Commits: 9}, {Path: "churn/c.go", Commits: 5},
 	}}, nil).Once()
-	s.loop.On("Hotspots", mock.Anything, 20).Return([]loopapi.Hotspot{{Path: "/home/u/proj/hot/h.go", Name: "Big", StartLine: 7}}, nil).Once()
+	s.loop.On("Hotspots", mock.Anything, 20).Return([]pluginsdk.Hotspot{{Path: "/home/u/proj/hot/h.go", Name: "Big", StartLine: 7}}, nil).Once()
 	var prompt string
-	s.loop.On("StartRun", mock.Anything, mock.MatchedBy(func(r loopapi.RunRequest) bool {
+	s.loop.On("StartRun", mock.Anything, mock.MatchedBy(func(r pluginsdk.RunRequest) bool {
 		prompt = r.Prompt
 		return r.Agent == AgentID && r.Model == "haiku" && r.Effort == ""
-	})).Return(&loopapi.Run{RunID: "run-9", ThreadID: "t"}, nil).Once()
+	})).Return(&pluginsdk.Run{RunID: "run-9", ThreadID: "t"}, nil).Once()
 	s.expectEvent(EventStarted)
 
 	s.Require().NoError(s.svc.Daily(s.ctx, "schedule"))
@@ -211,7 +212,7 @@ func (s *ServiceSuite) TestQuestionCount() {
 	}
 	for _, tt := range tests {
 		s.Run(tt.name, func() {
-			s.Require().Equal(tt.want, questionCount(&loopapi.Channel{Settings: tt.settings}, 5))
+			s.Require().Equal(tt.want, questionCount(&pluginsdk.Channel{Settings: tt.settings}, 5))
 		})
 	}
 }
@@ -222,14 +223,14 @@ func (s *ServiceSuite) TestLaunchTakesTheQuestionCountSetting() {
 	ch := local()
 	ch.Settings = map[string]any{"question_count": 7.0}
 	s.loop.On("Channel", mock.Anything).Return(ch, nil).Once()
-	s.loop.On("Tree", mock.Anything, "").Return([]string{"a.go"}, nil).Once()
-	s.loop.On("GitRecent", mock.Anything, 14).Return(&loopapi.GitRecent{}, nil).Once()
+	s.loop.On("Tree", mock.Anything, "").Return(&pluginsdk.Tree{Files: []string{"a.go"}}, nil).Once()
+	s.loop.On("GitRecent", mock.Anything, 14).Return(&pluginsdk.GitRecent{}, nil).Once()
 	s.loop.On("Hotspots", mock.Anything, 20).Return(nil, nil).Once()
 	var prompt string
-	s.loop.On("StartRun", mock.Anything, mock.MatchedBy(func(r loopapi.RunRequest) bool {
+	s.loop.On("StartRun", mock.Anything, mock.MatchedBy(func(r pluginsdk.RunRequest) bool {
 		prompt = r.Prompt
 		return true
-	})).Return(&loopapi.Run{RunID: "run-7"}, nil).Once()
+	})).Return(&pluginsdk.Run{RunID: "run-7"}, nil).Once()
 	s.expectEvent(EventStarted)
 
 	s.Require().NoError(s.svc.Launch(s.ctx, q))
@@ -251,15 +252,17 @@ func (s *ServiceSuite) TestLaunchFailures() {
 			wantErr: "reading the channel: down",
 		},
 		{
-			name:    "not local",
-			setup:   func() { s.loop.On("Channel", mock.Anything).Return(&loopapi.Channel{Platform: "discord"}, nil).Once() },
+			name: "not local",
+			setup: func() {
+				s.loop.On("Channel", mock.Anything).Return(&pluginsdk.Channel{Platform: "discord"}, nil).Once()
+			},
 			wantErr: `cogtest only runs in local channels (this one is "discord")`,
 		},
 		{
 			name: "tree error",
 			setup: func() {
 				s.loop.On("Channel", mock.Anything).Return(local(), nil).Once()
-				s.loop.On("Tree", mock.Anything, "").Return(nil, &loopapi.StatusError{Status: 403}).Once()
+				s.loop.On("Tree", mock.Anything, "").Return(nil, &pluginsdk.StatusError{Status: 403}).Once()
 			},
 			wantErr: "listing the channel's files",
 		},
@@ -267,7 +270,7 @@ func (s *ServiceSuite) TestLaunchFailures() {
 			name: "no source files",
 			setup: func() {
 				s.loop.On("Channel", mock.Anything).Return(local(), nil).Once()
-				s.loop.On("Tree", mock.Anything, "").Return([]string{"README.md"}, nil).Once()
+				s.loop.On("Tree", mock.Anything, "").Return(&pluginsdk.Tree{Files: []string{"README.md"}}, nil).Once()
 			},
 			wantErr: "no source files",
 		},
@@ -275,9 +278,9 @@ func (s *ServiceSuite) TestLaunchFailures() {
 			name: "run refused",
 			setup: func() {
 				s.loop.On("Channel", mock.Anything).Return(local(), nil).Once()
-				s.loop.On("Tree", mock.Anything, "").Return([]string{"a.go"}, nil).Once()
-				s.loop.On("GitRecent", mock.Anything, 14).Return(nil, &loopapi.StatusError{Status: 409}).Once()
-				s.loop.On("Hotspots", mock.Anything, 20).Return(nil, &loopapi.StatusError{Status: 404}).Once()
+				s.loop.On("Tree", mock.Anything, "").Return(&pluginsdk.Tree{Files: []string{"a.go"}}, nil).Once()
+				s.loop.On("GitRecent", mock.Anything, 14).Return(nil, &pluginsdk.StatusError{Status: 409}).Once()
+				s.loop.On("Hotspots", mock.Anything, 20).Return(nil, &pluginsdk.StatusError{Status: 404}).Once()
 				s.loop.On("StartRun", mock.Anything, mock.Anything).Return(nil, errors.New("no agent")).Once()
 			},
 			wantErr: "starting the generation run: no agent",
@@ -301,11 +304,11 @@ func (s *ServiceSuite) TestLaunchFailures() {
 }
 
 func (s *ServiceSuite) TestPlanFillsAtRandomAndCaps() {
-	s.loop.On("Tree", mock.Anything, "").Return([]string{"a.go", "b.go", "c.go", "d.go", "e_test.go"}, nil)
-	s.loop.On("GitRecent", mock.Anything, 14).Return(&loopapi.GitRecent{Files: []loopapi.FileChurn{
+	s.loop.On("Tree", mock.Anything, "").Return(&pluginsdk.Tree{Files: []string{"a.go", "b.go", "c.go", "d.go", "e_test.go"}}, nil)
+	s.loop.On("GitRecent", mock.Anything, 14).Return(&pluginsdk.GitRecent{Files: []pluginsdk.FileChurn{
 		{Path: "a.go", Commits: 1}, {Path: "b.go", Commits: 4}, {Path: "c.go", Commits: 3}, {Path: "gone.go", Commits: 9},
 	}}, nil)
-	s.loop.On("Hotspots", mock.Anything, 20).Return([]loopapi.Hotspot{{Path: "b.go"}, {Path: "d.go", Name: "D"}}, nil)
+	s.loop.On("Hotspots", mock.Anything, 20).Return([]pluginsdk.Hotspot{{Path: "b.go"}, {Path: "d.go", Name: "D"}}, nil)
 
 	got, err := s.svc.plan(s.ctx, "", "2026-10-10", 3)
 	s.Require().NoError(err)
@@ -379,7 +382,7 @@ func input(items ...item) json.RawMessage {
 }
 
 func (s *ServiceSuite) expectFile(path string, start, end, total int) {
-	s.loop.On("File", mock.Anything, path, start, end).Return(&loopapi.File{Path: path, Content: "code", Start: start, End: min(end, total), TotalLines: total}, nil)
+	s.loop.On("File", mock.Anything, path, start, end).Return(&pluginsdk.File{Path: path, Content: "code", Start: start, End: min(end, total), TotalLines: total}, nil)
 }
 
 func (s *ServiceSuite) TestSubmitStoresAValidQuiz() {
@@ -546,7 +549,7 @@ func (s *ServiceSuite) TestSubmitReportsEveryProblem() {
 				return it
 			}()},
 			files: func() {
-				s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &loopapi.StatusError{Status: http.StatusNotFound}).Once()
+				s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &pluginsdk.StatusError{Status: http.StatusNotFound}).Once()
 				s.expectFile("short.go", 8, 12, 10)
 			},
 			want: []string{
@@ -571,7 +574,7 @@ func (s *ServiceSuite) TestSubmitReportsEveryProblem() {
 				return it
 			}()},
 			files: func() {
-				s.loop.On("File", mock.Anything, "a.go", mock.Anything, mock.Anything).Return(nil, &loopapi.StatusError{Status: http.StatusBadRequest, Body: "the file has 40 lines"})
+				s.loop.On("File", mock.Anything, "a.go", mock.Anything, mock.Anything).Return(nil, &pluginsdk.StatusError{Status: http.StatusBadRequest, Body: "the file has 40 lines"})
 				s.loop.On("File", mock.Anything, "x.go", 1, 1).Return(nil, errors.New("connection refused")).Once()
 			},
 			want: []string{
@@ -792,11 +795,11 @@ func (s *ServiceSuite) TestPickReasksChecksTheCode() {
 		store.Question{Question: "Unhashed?", Area: "pkg", Anchors: []store.Anchor{{Path: "x.go", Start: 1, End: 1}}},
 		anchored("Spare?", "spare.go", 2),
 	)
-	s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &loopapi.StatusError{Status: http.StatusNotFound}).Once()
+	s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &pluginsdk.StatusError{Status: http.StatusNotFound}).Once()
 	s.loop.On("File", mock.Anything, "busy.go", 1, 2).Return(nil, errors.New("down")).Once()
-	s.loop.On("File", mock.Anything, "edit.go", 1, 2).Return(&loopapi.File{Content: "changed", TotalLines: 9}, nil).Once()
-	s.loop.On("File", mock.Anything, "short.go", 1, 5).Return(&loopapi.File{Content: "code", TotalLines: 3}, nil).Once()
-	s.loop.On("File", mock.Anything, "same.go", 1, 2).Return(&loopapi.File{Content: "code", TotalLines: 9}, nil).Once()
+	s.loop.On("File", mock.Anything, "edit.go", 1, 2).Return(&pluginsdk.File{Content: "changed", TotalLines: 9}, nil).Once()
+	s.loop.On("File", mock.Anything, "short.go", 1, 5).Return(&pluginsdk.File{Content: "code", TotalLines: 3}, nil).Once()
+	s.loop.On("File", mock.Anything, "same.go", 1, 2).Return(&pluginsdk.File{Content: "code", TotalLines: 9}, nil).Once()
 
 	got, err := s.svc.pickReasks(s.ctx, 2)
 	s.Require().NoError(err)
@@ -823,7 +826,7 @@ func (s *ServiceSuite) TestPickReasksWaitsForTheAreaToBeDue() {
 
 func (s *ServiceSuite) TestPickReasksStoreErrors() {
 	s.missed("2026-10-09", "2026-10-10", anchored("Gone?", "gone.go", 2))
-	s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &loopapi.StatusError{Status: http.StatusBadRequest}).
+	s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &pluginsdk.StatusError{Status: http.StatusBadRequest}).
 		Run(func(mock.Arguments) { s.Require().NoError(s.st.Close()) }).Once()
 	_, err := s.svc.pickReasks(s.ctx, 1)
 	s.Require().Error(err)
@@ -867,7 +870,7 @@ func (s *ServiceSuite) TestSubmitAppendsReasks() {
 func (s *ServiceSuite) TestSubmitReaskStoreError() {
 	q := s.generating("r1")
 	s.Require().NoError(s.st.SetPlan(s.ctx, q.ID, nil, []int64{1}, 1))
-	s.loop.On("File", mock.Anything, "pkg/a.go", 2, 4).Return(&loopapi.File{Content: "code", Start: 2, End: 4, TotalLines: 40}, nil).
+	s.loop.On("File", mock.Anything, "pkg/a.go", 2, 4).Return(&pluginsdk.File{Content: "code", Start: 2, End: 4, TotalLines: 40}, nil).
 		Run(func(mock.Arguments) { s.Require().NoError(s.st.Close()) }).Once()
 	_, err := s.svc.Submit(s.ctx, "r1", input(good("What does A do?", "pkg/a.go")))
 	s.Require().Error(err)
@@ -880,7 +883,7 @@ func (s *ServiceSuite) TestSubmitReaskStoreError() {
 func (s *ServiceSuite) TestAnswerChecksTheCode() {
 	tests := []struct {
 		name      string
-		file      *loopapi.File
+		file      *pluginsdk.File
 		fileErr   error
 		noFile    bool
 		markStale bool
@@ -888,11 +891,11 @@ func (s *ServiceSuite) TestAnswerChecksTheCode() {
 		wantStale bool
 		wantBox   int
 	}{
-		{name: "unchanged", file: &loopapi.File{Content: "code", TotalLines: 9}, wantBox: 1},
-		{name: "unchanged and right", file: &loopapi.File{Content: "code", TotalLines: 9}, correct: true, wantBox: 2},
-		{name: "changed", file: &loopapi.File{Content: "changed", TotalLines: 9}, wantStale: true},
-		{name: "changed but right", file: &loopapi.File{Content: "changed", TotalLines: 9}, correct: true, wantStale: true, wantBox: 2},
-		{name: "deleted", fileErr: &loopapi.StatusError{Status: http.StatusNotFound}, wantStale: true},
+		{name: "unchanged", file: &pluginsdk.File{Content: "code", TotalLines: 9}, wantBox: 1},
+		{name: "unchanged and right", file: &pluginsdk.File{Content: "code", TotalLines: 9}, correct: true, wantBox: 2},
+		{name: "changed", file: &pluginsdk.File{Content: "changed", TotalLines: 9}, wantStale: true},
+		{name: "changed but right", file: &pluginsdk.File{Content: "changed", TotalLines: 9}, correct: true, wantStale: true, wantBox: 2},
+		{name: "deleted", fileErr: &pluginsdk.StatusError{Status: http.StatusNotFound}, wantStale: true},
 		{name: "unreadable", fileErr: errors.New("down"), wantBox: 1},
 		{name: "already stale", noFile: true, markStale: true, wantStale: true},
 	}
@@ -951,7 +954,7 @@ func (s *ServiceSuite) TestAnswerMarkStaleError() {
 	defer db.Close()
 	_, err = db.Exec(`CREATE TRIGGER no_stale BEFORE UPDATE OF stale ON questions BEGIN SELECT RAISE(FAIL, 'stale is locked'); END`)
 	s.Require().NoError(err)
-	s.loop.On("File", mock.Anything, "x.go", 1, 2).Return(&loopapi.File{Content: "changed", TotalLines: 9}, nil).Once()
+	s.loop.On("File", mock.Anything, "x.go", 1, 2).Return(&pluginsdk.File{Content: "changed", TotalLines: 9}, nil).Once()
 	_, err = s.svc.Answer(s.ctx, qs[0].ID, 0)
 	s.Require().ErrorContains(err, "stale is locked")
 }

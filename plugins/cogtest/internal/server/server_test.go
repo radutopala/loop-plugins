@@ -1,10 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -16,8 +16,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi"
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi/loopapitest"
+	"github.com/radutopala/loop/pluginsdk"
+
+	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopmock"
 	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/quiz"
 	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/store"
 )
@@ -26,10 +27,11 @@ type ServerSuite struct {
 	suite.Suite
 	ctx  context.Context
 	st   *store.Store
-	loop *loopapitest.Client
+	loop *loopmock.Client
 	svc  *quiz.Service
 	srv  *Server
 	h    http.Handler
+	logs *bytes.Buffer
 }
 
 func TestServerSuite(t *testing.T) {
@@ -41,8 +43,9 @@ func (s *ServerSuite) SetupTest() {
 	st, err := store.Open(s.ctx, filepath.Join(s.T().TempDir(), "cogtest.db"))
 	s.Require().NoError(err)
 	s.st = st
-	s.loop = &loopapitest.Client{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	s.loop = &loopmock.Client{}
+	s.logs = &bytes.Buffer{}
+	logger := slog.New(slog.NewTextHandler(s.logs, nil))
 	s.svc = quiz.New(st, s.loop, logger)
 	now := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
 	s.svc.Now = func() time.Time { return now }
@@ -119,13 +122,19 @@ func (s *ServerSuite) TestActions() {
 	s.Require().Equal(http.StatusNotFound, code)
 
 	for _, tc := range []struct{ body, platform string }{{`{"trigger":"schedule"}`, "slack"}, {``, "discord"}} {
-		s.loop.On("Channel", mock.Anything).Return(&loopapi.Channel{Platform: tc.platform}, nil).Once()
+		s.loop.On("Channel", mock.Anything).Return(&pluginsdk.Channel{Platform: tc.platform}, nil).Once()
 		code, _ = s.do(http.MethodPost, "/actions/daily", tc.body)
 		s.Require().Equal(http.StatusAccepted, code)
 		s.srv.Wait()
 	}
+	s.loop.On("Channel", mock.Anything).Return(nil, errors.New("down")).Once()
+	code, _ = s.do(http.MethodPost, "/actions/daily", "")
+	s.Require().Equal(http.StatusAccepted, code)
+	s.srv.Wait()
 	_, err := s.st.LatestQuiz(s.ctx)
 	s.Require().ErrorIs(err, store.ErrNotFound)
+	s.Require().Contains(s.logs.String(), `level=INFO msg="daily action skipped" reason="cogtest only runs in local channels"`)
+	s.Require().Contains(s.logs.String(), `level=ERROR msg="action daily" err="reading the channel: down"`)
 }
 
 func (s *ServerSuite) TestTools() {
@@ -228,7 +237,7 @@ func (s *ServerSuite) TestNewQuiz() {
 	// The generation waits until the second request is in, so the first
 	// quiz still generates when it comes.
 	release := make(chan time.Time)
-	s.loop.On("Channel", mock.Anything).Return(&loopapi.Channel{Platform: "slack"}, nil).WaitUntil(release).Once()
+	s.loop.On("Channel", mock.Anything).Return(&pluginsdk.Channel{Platform: "slack"}, nil).WaitUntil(release).Once()
 	s.loop.On("Event", mock.Anything, quiz.EventFailed, mock.Anything).Return(nil).Once()
 
 	code, body := s.do(http.MethodPost, "/x/quizzes", "")
@@ -287,11 +296,6 @@ func (s *ServerSuite) TestStoreFailuresAre500() {
 			s.Require().NotEmpty(body["error"])
 		})
 	}
-}
-
-func (s *ServerSuite) TestBackgroundErrorsAreLogged() {
-	s.srv.background("x", func(context.Context) error { return errors.New("boom") })
-	s.srv.Wait()
 }
 
 func itoa(n int64) string {

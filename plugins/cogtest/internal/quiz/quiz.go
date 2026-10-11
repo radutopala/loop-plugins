@@ -17,7 +17,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/loopapi"
+	"github.com/radutopala/loop/pluginsdk"
+
 	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/store"
 )
 
@@ -73,7 +74,7 @@ var (
 // Service runs cogtest for one channel.
 type Service struct {
 	Store  *store.Store
-	Loop   loopapi.Client
+	Loop   pluginsdk.API
 	Logger *slog.Logger
 	// Now is the clock; dates are taken in its location.
 	Now func() time.Time
@@ -89,7 +90,7 @@ type Service struct {
 }
 
 // New returns a Service with the default clock, randomness and sizes.
-func New(st *store.Store, loop loopapi.Client, logger *slog.Logger) *Service {
+func New(st *store.Store, loop pluginsdk.API, logger *slog.Logger) *Service {
 	return &Service{
 		Store:      st,
 		Loop:       loop,
@@ -221,7 +222,7 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 	if err := s.Store.SetPlan(ctx, q.ID, paths, ids, count); err != nil {
 		return err
 	}
-	run, err := s.Loop.StartRun(ctx, loopapi.RunRequest{Agent: AgentID, Prompt: prompt, Model: q.Model, Effort: q.Effort})
+	run, err := s.Loop.StartRun(ctx, pluginsdk.RunRequest{Agent: AgentID, Prompt: prompt, Model: q.Model, Effort: q.Effort})
 	if err != nil {
 		return fmt.Errorf("starting the generation run: %w", err)
 	}
@@ -234,7 +235,7 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 
 // questionCount is how many questions the channel's question_count
 // setting asks for, or def without a whole number of at least one.
-func questionCount(ch *loopapi.Channel, def int) int {
+func questionCount(ch *pluginsdk.Channel, def int) int {
 	n, ok := ch.Settings["question_count"].(float64)
 	if !ok || n < 1 || n != math.Trunc(n) {
 		return def
@@ -282,7 +283,7 @@ func (s *Service) fresh(ctx context.Context, anchors []store.Anchor) (bool, erro
 		}
 		f, err := s.Loop.File(ctx, a.Path, a.Start, a.End)
 		switch {
-		case loopapi.HasStatus(err, http.StatusNotFound, http.StatusBadRequest, http.StatusRequestedRangeNotSatisfiable, http.StatusUnprocessableEntity):
+		case pluginsdk.HasStatus(err, http.StatusNotFound, http.StatusBadRequest, http.StatusRequestedRangeNotSatisfiable, http.StatusUnprocessableEntity):
 			return false, nil
 		case err != nil:
 			return false, err
@@ -335,14 +336,8 @@ func (s *Service) RunDone(ctx context.Context, runID, status, errMsg string) err
 	return nil
 }
 
-// ToolResult is what the agent sees from a tool call.
-type ToolResult struct {
-	Content string `json:"content"`
-	IsError bool   `json:"is_error"`
-}
-
-func toolError(format string, args ...any) ToolResult {
-	return ToolResult{Content: fmt.Sprintf(format, args...), IsError: true}
+func toolError(format string, args ...any) pluginsdk.ToolResult {
+	return pluginsdk.ToolResult{Content: fmt.Sprintf(format, args...), IsError: true}
 }
 
 // quizForRun returns the generating quiz of run runID, claiming the newest
@@ -364,13 +359,13 @@ func (s *Service) quizForRun(ctx context.Context, runID string) (*store.Quiz, er
 
 // Submit is the submit_questions tool: it validates the agent's questions
 // and, if they all pass, stores them and marks the quiz ready.
-func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessage) (ToolResult, error) {
+func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessage) (pluginsdk.ToolResult, error) {
 	q, err := s.quizForRun(ctx, runID)
 	if errors.Is(err, store.ErrNotFound) {
 		return toolError("No quiz is waiting for questions from this run. Stop."), nil
 	}
 	if err != nil {
-		return ToolResult{}, err
+		return pluginsdk.ToolResult{}, err
 	}
 	if q.Status != store.StatusGenerating {
 		return toolError("This quiz no longer accepts questions (it is %s). Stop.", q.Status), nil
@@ -381,7 +376,7 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 	}
 	fps, err := s.Store.RecentFingerprints(ctx, historyLimit)
 	if err != nil {
-		return ToolResult{}, err
+		return pluginsdk.ToolResult{}, err
 	}
 	c := &checker{loop: s.Loop, history: map[string]bool{}, files: map[rangeKey]checkedRange{}}
 	for _, fp := range fps {
@@ -412,7 +407,7 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 			continue
 		}
 		if err != nil {
-			return ToolResult{}, err
+			return pluginsdk.ToolResult{}, err
 		}
 		r.ReaskOf = id
 		questions = append(questions, *r)
@@ -421,13 +416,13 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 	if err := s.Store.SaveQuestions(ctx, q.ID, questions, s.Now()); errors.Is(err, store.ErrNotGenerating) {
 		return toolError("This quiz no longer accepts questions. Stop."), nil
 	} else if err != nil {
-		return ToolResult{}, err
+		return pluginsdk.ToolResult{}, err
 	}
 	s.event(ctx, EventReady, map[string]any{"quiz_id": q.ID})
 	if err := s.Loop.Notify(ctx, "Cognitive test", "Today's quiz is ready"); err != nil {
 		s.Logger.Warn("sending the notification", "err", err)
 	}
-	return ToolResult{Content: fmt.Sprintf("Saved %d questions; the quiz is ready. You are done.", added)}, nil
+	return pluginsdk.ToolResult{Content: fmt.Sprintf("Saved %d questions; the quiz is ready. You are done.", added)}, nil
 }
 
 // leitnerDays is how long each Leitner box waits before an area is due.
