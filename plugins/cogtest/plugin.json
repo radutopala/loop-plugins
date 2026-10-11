@@ -2,7 +2,7 @@
 {
   "id": "cogtest",
   "name": "Cognitive test",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "api": "1",
   "capabilities": [
     "files.read",
@@ -12,6 +12,7 @@
     "ui.panel",
     "ui.notify",
     "ui.open_file",
+    "schedule",
   ],
   "agents": [{ "id": "generate", "read_only": true, "tools": ["submit_questions"] }],
   "tools": [
@@ -60,7 +61,9 @@
       },
     },
   ],
-  "actions": [{ "id": "daily" }],
+  // Each project enabling cogtest gets a 9:00 task for the daily quiz, off
+  // until the owner turns it on, since each quiz is an agent run.
+  "actions": [{ "id": "daily", "default_schedule": { "type": "cron", "schedule": "0 9 * * *", "enabled": false } }],
   "settings": {
     "question_count": {
       "type": "integer",

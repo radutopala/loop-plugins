@@ -10,7 +10,7 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 
 | Plugin | What it does |
 | --- | --- |
-| [`cogtest`](plugins/cogtest) | A daily multiple-choice quiz about the channel's code. A read-only agent writes questions anchored in real lines, a panel asks them, per-area mastery is tracked with Leitner boxes, and missed questions come back while their code is unchanged. |
+| [`cogtest`](plugins/cogtest) | A daily multiple-choice quiz about the channel's code. A read-only agent writes questions anchored in real lines, a panel asks them, per-area mastery is tracked with Leitner boxes, and missed questions come back while their code is unchanged. Each project gets a daily task for it, off until turned on in Tasks. |
 
 ## Working on a plugin
 

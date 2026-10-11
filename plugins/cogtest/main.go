@@ -23,8 +23,8 @@ import (
 	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/store"
 )
 
-// version is set at build time with -ldflags "-X main.version=…".
-var version = "0.3.0"
+// version is the one plugin.json declares; keep the two in step.
+var version = "0.5.0"
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
