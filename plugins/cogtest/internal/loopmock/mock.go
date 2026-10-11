@@ -67,3 +67,9 @@ func (c *Client) WriteMemory(ctx context.Context, name, content string) error {
 func (c *Client) DeleteMemory(ctx context.Context, name string) error {
 	return c.Called(ctx, name).Error(0)
 }
+
+func (c *Client) RunUI(ctx context.Context, cmd pluginsdk.UICommand) (*pluginsdk.UIReply, error) {
+	args := c.Called(ctx, cmd)
+	r, _ := args.Get(0).(*pluginsdk.UIReply)
+	return r, args.Error(1)
+}
