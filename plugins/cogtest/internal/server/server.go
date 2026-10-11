@@ -173,12 +173,12 @@ func (s *Server) runDone(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) currentQuiz(w http.ResponseWriter, r *http.Request) {
-	v, err := s.Quiz.Current(r.Context())
+	v, err := s.Quiz.Today(r.Context())
 	if err != nil {
 		s.internal(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"quiz": v})
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) newQuiz(w http.ResponseWriter, r *http.Request) {

@@ -70,6 +70,13 @@ CREATE TABLE settings (
 	value TEXT NOT NULL
 );
 `},
+	// 2: re-asks of missed questions and anchors whose code changed.
+	{Version: 2, SQL: `
+ALTER TABLE quizzes ADD COLUMN reasks TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE questions ADD COLUMN reask_of INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE questions ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX questions_reask_of ON questions (reask_of);
+`},
 }
 
 // migrate applies the migrations db hasn't seen yet, each in its own

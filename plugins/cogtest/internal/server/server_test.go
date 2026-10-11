@@ -167,7 +167,8 @@ func (s *ServerSuite) TestRunDone() {
 func (s *ServerSuite) TestCurrentAndAttempts() {
 	code, body := s.do(http.MethodGet, "/x/quizzes/current", "")
 	s.Require().Equal(http.StatusOK, code)
-	s.Require().Equal(map[string]any{"quiz": nil}, body)
+	s.Require().Nil(body["quiz"])
+	s.Require().Equal(map[string]any{"streak": 0.0, "answered": 0.0, "correct": 0.0, "days": 30.0, "due_areas": 0.0}, body["summary"])
 
 	qid := s.readyQuiz()
 	code, body = s.do(http.MethodGet, "/x/quizzes/current", "")
@@ -211,7 +212,10 @@ func (s *ServerSuite) TestCurrentAndAttempts() {
 }
 
 func (s *ServerSuite) TestNewQuiz() {
-	s.loop.On("Channel", mock.Anything).Return(&loopapi.Channel{Platform: "slack"}, nil).Once()
+	// The generation waits until the second request is in, so the first
+	// quiz still generates when it comes.
+	release := make(chan time.Time)
+	s.loop.On("Channel", mock.Anything).Return(&loopapi.Channel{Platform: "slack"}, nil).WaitUntil(release).Once()
 	s.loop.On("Event", mock.Anything, quiz.EventFailed, mock.Anything).Return(nil).Once()
 
 	code, body := s.do(http.MethodPost, "/x/quizzes", "")
@@ -223,6 +227,7 @@ func (s *ServerSuite) TestNewQuiz() {
 	code, _ = s.do(http.MethodPost, "/x/quizzes", "")
 	s.Require().Equal(http.StatusConflict, code)
 
+	close(release)
 	s.srv.Wait()
 	got, err := s.st.LatestQuiz(s.ctx)
 	s.Require().NoError(err)

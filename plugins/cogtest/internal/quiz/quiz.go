@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -36,6 +37,9 @@ const (
 	historyQuizzes   = 60
 	defaultCount     = 5
 	defaultStaleness = 30 * time.Minute
+	maxReasks        = 2
+	heatmapDays      = 84
+	accuracyDays     = 30
 	noSubmission     = "the agent ended without submitting questions"
 )
 
@@ -183,7 +187,12 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 	if ch.Platform != "local" {
 		return fmt.Errorf("%w (this one is %q)", ErrNotLocal, ch.Platform)
 	}
-	focus, err := s.plan(ctx, ch.DirPath, s.today(), q.QuestionCount+2)
+	reasks, err := s.pickReasks(ctx, min(maxReasks, q.QuestionCount-1))
+	if err != nil {
+		return err
+	}
+	count := q.QuestionCount - len(reasks)
+	focus, err := s.plan(ctx, ch.DirPath, s.today(), count+2)
 	if err != nil {
 		return err
 	}
@@ -192,7 +201,7 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 		return err
 	}
 	prompt, err := renderPrompt(promptData{
-		ChannelName: ch.Name, Count: q.QuestionCount, MaxAnchorLines: maxAnchorLines, Focus: focus, Avoid: avoid,
+		ChannelName: ch.Name, Count: count, MaxAnchorLines: maxAnchorLines, Focus: focus, Avoid: avoid,
 	})
 	if err != nil {
 		return err
@@ -201,7 +210,11 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 	for i, f := range focus {
 		paths[i] = f.Path
 	}
-	if err := s.Store.SetFocus(ctx, q.ID, paths); err != nil {
+	ids := make([]int64, len(reasks))
+	for i, r := range reasks {
+		ids[i] = r.ID
+	}
+	if err := s.Store.SetPlan(ctx, q.ID, paths, ids, count); err != nil {
 		return err
 	}
 	run, err := s.Loop.StartRun(ctx, loopapi.RunRequest{Agent: AgentID, Prompt: prompt, Model: q.Model, Effort: q.Effort})
@@ -213,6 +226,57 @@ func (s *Service) launch(ctx context.Context, q *store.Quiz) error {
 	}
 	s.event(ctx, EventStarted, map[string]any{"quiz_id": q.ID})
 	return nil
+}
+
+// pickReasks returns up to limit missed questions to ask again whose code
+// hasn't changed, marking the ones whose code changed stale.
+func (s *Service) pickReasks(ctx context.Context, limit int) ([]store.Question, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	candidates, err := s.Store.ReaskCandidates(ctx, s.today(), limit*3)
+	if err != nil {
+		return nil, err
+	}
+	var out []store.Question
+	for _, c := range candidates {
+		if len(out) == limit {
+			break
+		}
+		fresh, err := s.fresh(ctx, c.Anchors)
+		if err != nil {
+			s.Logger.Info("skipping a re-ask", "question", c.ID, "err", err)
+			continue
+		}
+		if !fresh {
+			if err := s.Store.MarkStale(ctx, c.ID); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+// fresh reports whether the code every anchor points at is unchanged. It
+// returns an error when a file can't be read right now.
+func (s *Service) fresh(ctx context.Context, anchors []store.Anchor) (bool, error) {
+	for _, a := range anchors {
+		if a.Hash == "" {
+			continue
+		}
+		f, err := s.Loop.File(ctx, a.Path, a.Start, a.End)
+		switch {
+		case loopapi.HasStatus(err, http.StatusNotFound, http.StatusBadRequest, http.StatusRequestedRangeNotSatisfiable, http.StatusUnprocessableEntity):
+			return false, nil
+		case err != nil:
+			return false, err
+		case f.TotalLines < a.End || hashSnippet(f.Content) != a.Hash:
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // fail marks quiz id failed with msg if it is still generating.
@@ -327,6 +391,18 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 		return toolError("Nothing was saved. Fix these problems and call plugin_%s again with all %d questions:\n%s",
 			ToolName, q.QuestionCount, strings.Join(problems, "\n")), nil
 	}
+	added := len(questions)
+	for _, id := range q.Reasks {
+		r, err := s.Store.Question(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return ToolResult{}, err
+		}
+		r.ReaskOf = id
+		questions = append(questions, *r)
+	}
 
 	if err := s.Store.SaveQuestions(ctx, q.ID, questions, s.Now()); errors.Is(err, store.ErrNotGenerating) {
 		return toolError("This quiz no longer accepts questions. Stop."), nil
@@ -337,7 +413,7 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 	if err := s.Loop.Notify(ctx, "Cognitive test", "Today's quiz is ready"); err != nil {
 		s.Logger.Warn("sending the notification", "err", err)
 	}
-	return ToolResult{Content: fmt.Sprintf("Saved %d questions; the quiz is ready. You are done.", len(questions))}, nil
+	return ToolResult{Content: fmt.Sprintf("Saved %d questions; the quiz is ready. You are done.", added)}, nil
 }
 
 // leitnerDays is how long each Leitner box waits before an area is due.
@@ -367,6 +443,9 @@ type Grade struct {
 	CorrectIndex int            `json:"correct_index"`
 	Explanation  string         `json:"explanation"`
 	Anchors      []store.Anchor `json:"anchors"`
+	// Stale is set when the code changed since the question was written; a
+	// wrong answer then leaves the area's mastery alone.
+	Stale bool `json:"stale"`
 }
 
 // Answer grades the user's answer to question id and updates the mastery of
@@ -384,15 +463,33 @@ func (s *Service) Answer(ctx context.Context, id int64, chosen int) (*Grade, err
 	}
 	now := s.Now()
 	correct := chosen == q.CorrectIndex
+	stale := q.Stale
+	if !stale {
+		fresh, err := s.fresh(ctx, q.Anchors)
+		if err != nil {
+			s.Logger.Info("checking the question's code", "question", id, "err", err)
+		}
+		stale = err == nil && !fresh
+	}
 	err = s.Store.RecordAttempt(ctx, store.Attempt{QuestionID: id, ChosenIndex: chosen, Correct: correct, AnsweredAt: now}, q.Area,
-		func(m store.Mastery, found bool) store.Mastery { return nextMastery(m, found, correct, now) })
+		func(m store.Mastery, found bool) (store.Mastery, bool) {
+			if stale && !correct {
+				return m, false
+			}
+			return nextMastery(m, found, correct, now), true
+		})
 	if errors.Is(err, store.ErrAlreadyAnswered) {
 		return nil, ErrAnswered
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &Grade{Correct: correct, CorrectIndex: q.CorrectIndex, Explanation: q.Explanation, Anchors: q.Anchors}, nil
+	if stale && !q.Stale {
+		if err := s.Store.MarkStale(ctx, id); err != nil {
+			return nil, err
+		}
+	}
+	return &Grade{Correct: correct, CorrectIndex: q.CorrectIndex, Explanation: q.Explanation, Anchors: q.Anchors, Stale: stale}, nil
 }
 
 // QuizView is a quiz as the panel sees it.
@@ -418,6 +515,7 @@ type QuestionView struct {
 	Question string      `json:"question"`
 	Choices  []string    `json:"choices"`
 	Area     string      `json:"area"`
+	Reask    bool        `json:"reask"`
 	Answer   *AnswerView `json:"answer,omitempty"`
 }
 
@@ -462,11 +560,14 @@ func (s *Service) Current(ctx context.Context) (*QuizView, error) {
 		Score: Score{Total: len(questions)},
 	}
 	for _, qq := range questions {
-		qv := QuestionView{ID: qq.ID, Index: qq.Index, Question: qq.Question, Choices: qq.Choices, Area: qq.Area}
+		qv := QuestionView{ID: qq.ID, Index: qq.Index, Question: qq.Question, Choices: qq.Choices, Area: qq.Area, Reask: qq.ReaskOf != 0}
 		if a, ok := attempts[qq.ID]; ok {
 			qv.Answer = &AnswerView{
 				ChosenIndex: a.ChosenIndex, AnsweredAt: a.AnsweredAt,
-				Grade: Grade{Correct: a.Correct, CorrectIndex: qq.CorrectIndex, Explanation: qq.Explanation, Anchors: qq.Anchors},
+				Grade: Grade{
+					Correct: a.Correct, CorrectIndex: qq.CorrectIndex, Explanation: qq.Explanation, Anchors: qq.Anchors,
+					Stale: qq.Stale,
+				},
 			}
 			v.Score.Answered++
 			if a.Correct {
@@ -478,10 +579,39 @@ func (s *Service) Current(ctx context.Context) (*QuizView, error) {
 	return v, nil
 }
 
+// TodayView is the panel's Today tab: the newest quiz, if any, and the
+// summary card.
+type TodayView struct {
+	Quiz    *QuizView    `json:"quiz"`
+	Summary *SummaryView `json:"summary"`
+}
+
+// Today returns the newest quiz and the summary.
+func (s *Service) Today(ctx context.Context) (*TodayView, error) {
+	q, err := s.Current(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sum, err := s.Summary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &TodayView{Quiz: q, Summary: sum}, nil
+}
+
 // HistoryView is the panel's History tab.
 type HistoryView struct {
 	Quizzes []HistoryQuiz `json:"quizzes"`
 	Mastery []MasteryView `json:"mastery"`
+	// Days are the scores per quiz date of the last heatmapDays days, the
+	// oldest first; days without a ready quiz are left out.
+	Days []DayView `json:"days"`
+}
+
+// DayView is how the user did on one day's quizzes.
+type DayView struct {
+	Date string `json:"date"`
+	Score
 }
 
 // HistoryQuiz is a past quiz and its score.
@@ -514,7 +644,11 @@ func (s *Service) History(ctx context.Context) (*HistoryView, error) {
 	if err != nil {
 		return nil, err
 	}
-	v := &HistoryView{Quizzes: []HistoryQuiz{}, Mastery: []MasteryView{}}
+	days, err := s.days(ctx)
+	if err != nil {
+		return nil, err
+	}
+	v := &HistoryView{Quizzes: []HistoryQuiz{}, Mastery: []MasteryView{}, Days: days}
 	for _, q := range quizzes {
 		v.Quizzes = append(v.Quizzes, HistoryQuiz{
 			ID: q.ID, Date: q.Date, Status: q.Status, Error: q.Error, CreatedAt: q.CreatedAt,
@@ -525,6 +659,75 @@ func (s *Service) History(ctx context.Context) (*HistoryView, error) {
 		v.Mastery = append(v.Mastery, MasteryView{
 			Area: m.Area, Box: m.Box, MaxBox: len(leitnerDays), Due: m.Due, Correct: m.Correct, Wrong: m.Wrong,
 		})
+	}
+	return v, nil
+}
+
+func (s *Service) days(ctx context.Context) ([]DayView, error) {
+	since := s.Now().AddDate(0, 0, 1-heatmapDays).Format(dateLayout)
+	scores, err := s.Store.DayScores(ctx, since)
+	if err != nil {
+		return nil, err
+	}
+	out := []DayView{}
+	for _, d := range scores {
+		out = append(out, DayView{Date: d.Date, Score: Score{Total: d.Total, Answered: d.Answered, Correct: d.Correct}})
+	}
+	return out, nil
+}
+
+// SummaryView is the card above today's quiz.
+type SummaryView struct {
+	// Streak is how many days in a row, up to today or yesterday, the user
+	// answered a question; it counts at most heatmapDays.
+	Streak int `json:"streak"`
+	// Answered and Correct count the last accuracyDays days.
+	Answered int `json:"answered"`
+	Correct  int `json:"correct"`
+	Days     int `json:"days"`
+	// DueAreas counts the areas due for review today.
+	DueAreas int `json:"due_areas"`
+	// Weakest is the area in the lowest Leitner box with a wrong answer.
+	Weakest string `json:"weakest,omitempty"`
+}
+
+// Summary returns the streak, recent accuracy and review state.
+func (s *Service) Summary(ctx context.Context) (*SummaryView, error) {
+	days, err := s.days(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mastery, err := s.Store.MasteryList(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := s.Now()
+	today := now.Format(dateLayout)
+	v := &SummaryView{Days: accuracyDays}
+	answered := map[string]bool{}
+	cutoff := now.AddDate(0, 0, 1-accuracyDays).Format(dateLayout)
+	for _, d := range days {
+		answered[d.Date] = d.Answered > 0
+		if d.Date >= cutoff {
+			v.Answered += d.Answered
+			v.Correct += d.Correct
+		}
+	}
+	day := now
+	if !answered[today] {
+		day = day.AddDate(0, 0, -1)
+	}
+	for answered[day.Format(dateLayout)] {
+		v.Streak++
+		day = day.AddDate(0, 0, -1)
+	}
+	for _, m := range mastery {
+		if m.Due <= today {
+			v.DueAreas++
+		}
+		if v.Weakest == "" && m.Wrong > 0 {
+			v.Weakest = m.Area
+		}
 	}
 	return v, nil
 }

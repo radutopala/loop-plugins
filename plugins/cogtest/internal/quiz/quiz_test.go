@@ -2,6 +2,7 @@ package quiz
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +42,8 @@ type ServiceSuite struct {
 	loop *loopapitest.Client
 	svc  *Service
 	now  time.Time
+	// dbPath is the store's file.
+	dbPath string
 }
 
 func TestServiceSuite(t *testing.T) {
@@ -49,7 +52,8 @@ func TestServiceSuite(t *testing.T) {
 
 func (s *ServiceSuite) SetupTest() {
 	s.ctx = context.Background()
-	st, err := store.Open(s.ctx, filepath.Join(s.T().TempDir(), "cogtest.db"))
+	s.dbPath = filepath.Join(s.T().TempDir(), "cogtest.db")
+	st, err := store.Open(s.ctx, s.dbPath)
 	s.Require().NoError(err)
 	s.st = st
 	s.loop = &loopapitest.Client{}
@@ -181,11 +185,14 @@ func (s *ServiceSuite) TestDailyStartsARun() {
 	q, err := s.st.QuizByRunID(s.ctx, "run-9")
 	s.Require().NoError(err)
 	s.Require().Equal(store.StatusGenerating, q.Status)
-	s.Require().Equal([]string{"due/x.go", "churn/c.go", "hot/h.go", "rand/r.go"}, q.Focus)
+	// The missed question comes back, so the agent writes one fewer.
+	s.Require().Equal([]int64{qs[0].ID}, q.Reasks)
+	s.Require().Equal(s.svc.Count-1, q.QuestionCount)
+	s.Require().Equal([]string{"due/x.go", "churn/c.go", "hot/h.go"}, q.Focus)
 	s.Require().Contains(prompt, "- `due/x.go`: its area due is due for review")
 	s.Require().Contains(prompt, "- `churn/c.go`: changed in 5 recent commits")
 	s.Require().Contains(prompt, "- `hot/h.go`: complex function Big at line 7")
-	s.Require().Contains(prompt, "- `rand/r.go`: picked at random")
+	s.Require().NotContains(prompt, "rand/r.go")
 	s.Require().Contains(prompt, "- What does Old do?")
 	s.Require().NotContains(prompt, "README.md")
 }
@@ -657,7 +664,7 @@ func (s *ServiceSuite) TestCurrentExpiresStaleGeneration() {
 func (s *ServiceSuite) TestHistory() {
 	v, err := s.svc.History(s.ctx)
 	s.Require().NoError(err)
-	s.Require().Equal(&HistoryView{Quizzes: []HistoryQuiz{}, Mastery: []MasteryView{}}, v)
+	s.Require().Equal(&HistoryView{Quizzes: []HistoryQuiz{}, Mastery: []MasteryView{}, Days: []DayView{}}, v)
 
 	q, qs := s.readyQuiz()
 	_, err = s.svc.Answer(s.ctx, qs[0].ID, 2)
@@ -668,6 +675,271 @@ func (s *ServiceSuite) TestHistory() {
 	s.Require().Equal(q.ID, v.Quizzes[0].ID)
 	s.Require().Equal(Score{Total: 2, Answered: 1, Correct: 1}, v.Quizzes[0].Score)
 	s.Require().Equal([]MasteryView{{Area: "pkg", Box: 2, MaxBox: 5, Due: "2026-10-12", Correct: 1}}, v.Mastery)
+}
+
+// missed stores a ready quiz dated date with qs, each answered wrong in order,
+// in areas due on due, and returns the stored questions.
+func (s *ServiceSuite) missed(date, due string, qs ...store.Question) []store.Question {
+	return s.answered(date, due, false, qs...)
+}
+
+// answered stores a ready quiz dated date with qs, each answered (correct or
+// not) in order, in areas due on due, and returns the stored questions.
+func (s *ServiceSuite) answered(date, due string, correct bool, qs ...store.Question) []store.Question {
+	q := &store.Quiz{Date: date, Status: store.StatusGenerating, QuestionCount: len(qs), CreatedAt: s.now}
+	s.Require().NoError(s.st.CreateQuiz(s.ctx, q))
+	for i := range qs {
+		qs[i].Choices = []string{"a", "b"}
+		qs[i].Fingerprint = qs[i].Question
+	}
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, qs, s.now))
+	stored, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	for i, sq := range stored {
+		set := func(m store.Mastery, _ bool) (store.Mastery, bool) {
+			m.Box, m.Due, m.UpdatedAt = 1, due, s.now
+			if correct {
+				m.Correct++
+			} else {
+				m.Wrong++
+			}
+			return m, true
+		}
+		at := s.now.Add(time.Duration(i) * time.Minute)
+		s.Require().NoError(s.st.RecordAttempt(s.ctx, store.Attempt{QuestionID: sq.ID, Correct: correct, AnsweredAt: at}, sq.Area, set))
+	}
+	return stored
+}
+
+func anchored(question, path string, end int) store.Question {
+	return store.Question{Question: question, Area: "pkg", Anchors: []store.Anchor{{Path: path, Start: 1, End: end, Hash: hashSnippet("code")}}}
+}
+
+func withChoices(q store.Question) store.Question {
+	q.Choices, q.Fingerprint = []string{"a", "b"}, q.Question
+	return q
+}
+
+func (s *ServiceSuite) TestPickReasksChecksTheCode() {
+	qs := s.missed("2026-10-09", "2026-10-10",
+		anchored("Gone?", "gone.go", 2),
+		anchored("Busy?", "busy.go", 2),
+		anchored("Edited?", "edit.go", 2),
+		anchored("Short?", "short.go", 5),
+		anchored("Same?", "same.go", 2),
+		store.Question{Question: "Unhashed?", Area: "pkg", Anchors: []store.Anchor{{Path: "x.go", Start: 1, End: 1}}},
+		anchored("Spare?", "spare.go", 2),
+	)
+	s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &loopapi.StatusError{Status: http.StatusNotFound}).Once()
+	s.loop.On("File", mock.Anything, "busy.go", 1, 2).Return(nil, errors.New("down")).Once()
+	s.loop.On("File", mock.Anything, "edit.go", 1, 2).Return(&loopapi.File{Content: "changed", TotalLines: 9}, nil).Once()
+	s.loop.On("File", mock.Anything, "short.go", 1, 5).Return(&loopapi.File{Content: "code", TotalLines: 3}, nil).Once()
+	s.loop.On("File", mock.Anything, "same.go", 1, 2).Return(&loopapi.File{Content: "code", TotalLines: 9}, nil).Once()
+
+	got, err := s.svc.pickReasks(s.ctx, 2)
+	s.Require().NoError(err)
+	s.Require().Len(got, 2)
+	s.Require().Equal(qs[4].ID, got[0].ID)
+	s.Require().Equal(qs[5].ID, got[1].ID)
+	for i, wantStale := range []bool{true, false, true, true, false, false, false} {
+		q, err := s.st.Question(s.ctx, qs[i].ID)
+		s.Require().NoError(err)
+		s.Require().Equal(wantStale, q.Stale, q.Question)
+	}
+
+	none, err := s.svc.pickReasks(s.ctx, 0)
+	s.Require().NoError(err)
+	s.Require().Empty(none)
+}
+
+func (s *ServiceSuite) TestPickReasksWaitsForTheAreaToBeDue() {
+	s.missed("2026-10-09", "2026-10-11", anchored("Later?", "later.go", 2))
+	got, err := s.svc.pickReasks(s.ctx, 2)
+	s.Require().NoError(err)
+	s.Require().Empty(got)
+}
+
+func (s *ServiceSuite) TestPickReasksStoreErrors() {
+	s.missed("2026-10-09", "2026-10-10", anchored("Gone?", "gone.go", 2))
+	s.loop.On("File", mock.Anything, "gone.go", 1, 2).Return(nil, &loopapi.StatusError{Status: http.StatusBadRequest}).
+		Run(func(mock.Arguments) { s.Require().NoError(s.st.Close()) }).Once()
+	_, err := s.svc.pickReasks(s.ctx, 1)
+	s.Require().Error(err)
+	_, err = s.svc.pickReasks(s.ctx, 1)
+	s.Require().Error(err)
+
+	st, err := store.Open(s.ctx, filepath.Join(s.T().TempDir(), "again.db"))
+	s.Require().NoError(err)
+	s.st = st
+}
+
+func (s *ServiceSuite) TestSubmitAppendsReasks() {
+	old := s.missed("2026-10-09", "2026-10-10", store.Question{Question: "Old?", Area: "pkg", CorrectIndex: 1, Explanation: "because",
+		Anchors: []store.Anchor{{Path: "pkg/old.go", Start: 1, End: 1}}})
+	q := s.generating("r1")
+	s.Require().NoError(s.st.SetPlan(s.ctx, q.ID, nil, []int64{old[0].ID, 999}, 1))
+	s.expectFile("pkg/a.go", 2, 4, 40)
+	s.expectEvent(EventReady)
+	s.loop.On("Notify", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+
+	res, err := s.svc.Submit(s.ctx, "r1", input(good("What does A do?", "pkg/a.go")))
+	s.Require().NoError(err)
+	s.Require().False(res.IsError, res.Content)
+	s.Require().Contains(res.Content, "Saved 1 questions")
+
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	s.Require().Len(qs, 2)
+	s.Require().Zero(qs[0].ReaskOf)
+	s.Require().Equal(old[0].ID, qs[1].ReaskOf)
+	s.Require().Equal(1, qs[1].Index)
+	s.Require().Equal("Old?", qs[1].Question)
+	s.Require().Equal("because", qs[1].Explanation)
+
+	v, err := s.svc.Current(s.ctx)
+	s.Require().NoError(err)
+	s.Require().False(v.Questions[0].Reask)
+	s.Require().True(v.Questions[1].Reask)
+}
+
+func (s *ServiceSuite) TestSubmitReaskStoreError() {
+	q := s.generating("r1")
+	s.Require().NoError(s.st.SetPlan(s.ctx, q.ID, nil, []int64{1}, 1))
+	s.loop.On("File", mock.Anything, "pkg/a.go", 2, 4).Return(&loopapi.File{Content: "code", Start: 2, End: 4, TotalLines: 40}, nil).
+		Run(func(mock.Arguments) { s.Require().NoError(s.st.Close()) }).Once()
+	_, err := s.svc.Submit(s.ctx, "r1", input(good("What does A do?", "pkg/a.go")))
+	s.Require().Error(err)
+
+	st, err := store.Open(s.ctx, filepath.Join(s.T().TempDir(), "again.db"))
+	s.Require().NoError(err)
+	s.st = st
+}
+
+func (s *ServiceSuite) TestAnswerChecksTheCode() {
+	tests := []struct {
+		name      string
+		file      *loopapi.File
+		fileErr   error
+		noFile    bool
+		markStale bool
+		correct   bool
+		wantStale bool
+		wantBox   int
+	}{
+		{name: "unchanged", file: &loopapi.File{Content: "code", TotalLines: 9}, wantBox: 1},
+		{name: "unchanged and right", file: &loopapi.File{Content: "code", TotalLines: 9}, correct: true, wantBox: 2},
+		{name: "changed", file: &loopapi.File{Content: "changed", TotalLines: 9}, wantStale: true},
+		{name: "changed but right", file: &loopapi.File{Content: "changed", TotalLines: 9}, correct: true, wantStale: true, wantBox: 2},
+		{name: "deleted", fileErr: &loopapi.StatusError{Status: http.StatusNotFound}, wantStale: true},
+		{name: "unreadable", fileErr: errors.New("down"), wantBox: 1},
+		{name: "already stale", noFile: true, markStale: true, wantStale: true},
+	}
+	for i, tt := range tests {
+		s.Run(tt.name, func() {
+			area := fmt.Sprintf("area%d", i)
+			path := area + "/x.go"
+			q := s.generating("")
+			s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, []store.Question{{Question: tt.name, Choices: []string{"a", "b"}, CorrectIndex: 1,
+				Anchors: []store.Anchor{{Path: path, Start: 1, End: 2, Hash: hashSnippet("code")}}, Fingerprint: tt.name, Area: area}}, s.now))
+			qs, err := s.st.Questions(s.ctx, q.ID)
+			s.Require().NoError(err)
+			if tt.markStale {
+				s.Require().NoError(s.st.MarkStale(s.ctx, qs[0].ID))
+			}
+			if !tt.noFile {
+				s.loop.On("File", mock.Anything, path, 1, 2).Return(tt.file, tt.fileErr).Once()
+			}
+			chosen := 0
+			if tt.correct {
+				chosen = 1
+			}
+
+			g, err := s.svc.Answer(s.ctx, qs[0].ID, chosen)
+			s.Require().NoError(err)
+			s.Require().Equal(tt.correct, g.Correct)
+			s.Require().Equal(tt.wantStale, g.Stale)
+			stored, err := s.st.Question(s.ctx, qs[0].ID)
+			s.Require().NoError(err)
+			s.Require().Equal(tt.wantStale, stored.Stale)
+			ms, err := s.st.MasteryList(s.ctx)
+			s.Require().NoError(err)
+			box := 0
+			for _, m := range ms {
+				if m.Area == area {
+					box = m.Box
+				}
+			}
+			s.Require().Equal(tt.wantBox, box)
+
+			v, err := s.svc.Current(s.ctx)
+			s.Require().NoError(err)
+			s.Require().Equal(tt.wantStale, v.Questions[0].Answer.Stale)
+		})
+	}
+}
+
+func (s *ServiceSuite) TestAnswerMarkStaleError() {
+	q := s.generating("")
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, []store.Question{withChoices(anchored("Q?", "x.go", 2))}, s.now))
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	// The attempt is stored, then marking the question stale fails.
+	db, err := sql.Open("sqlite", "file:"+s.dbPath)
+	s.Require().NoError(err)
+	defer db.Close()
+	_, err = db.Exec(`CREATE TRIGGER no_stale BEFORE UPDATE OF stale ON questions BEGIN SELECT RAISE(FAIL, 'stale is locked'); END`)
+	s.Require().NoError(err)
+	s.loop.On("File", mock.Anything, "x.go", 1, 2).Return(&loopapi.File{Content: "changed", TotalLines: 9}, nil).Once()
+	_, err = s.svc.Answer(s.ctx, qs[0].ID, 0)
+	s.Require().ErrorContains(err, "stale is locked")
+}
+
+func (s *ServiceSuite) TestSummary() {
+	v, err := s.svc.Summary(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(&SummaryView{Days: accuracyDays}, v)
+
+	// Answered on 10-07..10-09 with a gap on 10-06; today's quiz isn't
+	// answered yet, so the streak runs to yesterday.
+	s.answered("2026-10-05", "2026-10-20", true, store.Question{Question: "Q5", Area: "a"})
+	s.answered("2026-10-07", "2026-10-20", true, store.Question{Question: "Q7", Area: "a"})
+	s.answered("2026-10-08", "2026-10-09", false, store.Question{Question: "Q8", Area: "c"})
+	s.answered("2026-10-09", "2026-10-10", false, store.Question{Question: "Q9", Area: "b"})
+	// Older than accuracyDays: counts in neither the accuracy nor the streak.
+	s.answered("2026-08-01", "2026-10-20", true, store.Question{Question: "Q0", Area: "d"})
+	today := s.generating("")
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, today.ID, []store.Question{{Question: "T", Choices: []string{"a", "b"}, Fingerprint: "t", Area: "a"}}, s.now))
+
+	v, err = s.svc.Summary(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(&SummaryView{Streak: 3, Answered: 4, Correct: 2, Days: accuracyDays, DueAreas: 2, Weakest: "b"}, v)
+
+	tv, err := s.svc.Today(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(today.ID, tv.Quiz.ID)
+	s.Require().Equal(v, tv.Summary)
+
+	// Answering today extends it.
+	qs, err := s.st.Questions(s.ctx, today.ID)
+	s.Require().NoError(err)
+	_, err = s.svc.Answer(s.ctx, qs[0].ID, 0)
+	s.Require().NoError(err)
+	v, err = s.svc.Summary(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(4, v.Streak)
+	s.Require().Equal(5, v.Answered)
+	s.Require().Equal(3, v.Correct)
+
+	h, err := s.svc.History(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal([]DayView{
+		{Date: "2026-10-05", Score: Score{Total: 1, Answered: 1, Correct: 1}},
+		{Date: "2026-10-07", Score: Score{Total: 1, Answered: 1, Correct: 1}},
+		{Date: "2026-10-08", Score: Score{Total: 1, Answered: 1}},
+		{Date: "2026-10-09", Score: Score{Total: 1, Answered: 1}},
+		{Date: "2026-10-10", Score: Score{Total: 1, Answered: 1, Correct: 1}},
+	}, h.Days[1:])
+	s.Require().Equal("2026-08-01", h.Days[0].Date)
 }
 
 func (s *ServiceSuite) TestSettings() {
@@ -691,6 +963,10 @@ func (s *ServiceSuite) TestStoreErrorsPropagate() {
 	_, err = s.svc.Current(s.ctx)
 	s.Require().Error(err)
 	_, err = s.svc.History(s.ctx)
+	s.Require().Error(err)
+	_, err = s.svc.Today(s.ctx)
+	s.Require().Error(err)
+	_, err = s.svc.Summary(s.ctx)
 	s.Require().Error(err)
 	_, err = s.svc.Answer(s.ctx, 1, 0)
 	s.Require().Error(err)

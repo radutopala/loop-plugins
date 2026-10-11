@@ -55,9 +55,11 @@ type Quiz struct {
 	RunID         string
 	QuestionCount int
 	Focus         []string
-	Error         string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Reasks are the missed questions planned to come back in this quiz.
+	Reasks    []int64
+	Error     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Question is a multiple-choice question of a quiz.
@@ -72,6 +74,10 @@ type Question struct {
 	Anchors      []Anchor
 	Fingerprint  string
 	Area         string
+	// ReaskOf is the missed question this one asks again, or 0.
+	ReaskOf int64
+	// Stale is set once the code an anchor points at changed.
+	Stale bool
 }
 
 // Attempt is the user's answer to a question.
@@ -139,16 +145,16 @@ func openWith(ctx context.Context, path string, migrations []Migration) (*Store,
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
-const quizColumns = `id, date, status, trigger, model, effort, run_id, question_count, focus, error, created_at, updated_at`
+const quizColumns = `id, date, status, trigger, model, effort, run_id, question_count, focus, reasks, error, created_at, updated_at`
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanQuiz(row scanner) (*Quiz, error) {
 	var q Quiz
-	var focus string
+	var focus, reasks string
 	var created, updated int64
 	err := row.Scan(&q.ID, &q.Date, &q.Status, &q.Trigger, &q.Model, &q.Effort, &q.RunID,
-		&q.QuestionCount, &focus, &q.Error, &created, &updated)
+		&q.QuestionCount, &focus, &reasks, &q.Error, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -157,6 +163,9 @@ func scanQuiz(row scanner) (*Quiz, error) {
 	}
 	if err := json.Unmarshal([]byte(focus), &q.Focus); err != nil {
 		return nil, fmt.Errorf("quiz %d focus: %w", q.ID, err)
+	}
+	if err := json.Unmarshal([]byte(reasks), &q.Reasks); err != nil {
+		return nil, fmt.Errorf("quiz %d reasks: %w", q.ID, err)
 	}
 	q.CreatedAt = time.Unix(created, 0).UTC()
 	q.UpdatedAt = time.Unix(updated, 0).UTC()
@@ -228,13 +237,14 @@ func (s *Store) SetRunID(ctx context.Context, id int64, runID string, now time.T
 	return err
 }
 
-// SetFocus records the files quiz id was planned around.
-func (s *Store) SetFocus(ctx context.Context, id int64, focus []string) error {
-	b, err := json.Marshal(nonNil(focus))
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `UPDATE quizzes SET focus = ? WHERE id = ?`, string(b), id)
+// SetPlan records the files quiz id was planned around, the missed
+// questions it asks again and how many new questions the agent writes.
+func (s *Store) SetPlan(ctx context.Context, id int64, focus []string, reasks []int64, count int) error {
+	// Slices of strings and ints always marshal.
+	f, _ := json.Marshal(nonNil(focus))
+	r, _ := json.Marshal(nonNil(reasks))
+	_, err := s.db.ExecContext(ctx, `UPDATE quizzes SET focus = ?, reasks = ?, question_count = ? WHERE id = ?`,
+		string(f), string(r), count, id)
 	return err
 }
 
@@ -287,21 +297,23 @@ func (s *Store) SaveQuestions(ctx context.Context, quizID int64, qs []Question, 
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO questions
-			(quiz_id, idx, question, choices, correct_index, explanation, anchors, fingerprint, area)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			quizID, i, q.Question, string(choices), q.CorrectIndex, q.Explanation, string(anchors), q.Fingerprint, q.Area); err != nil {
+			(quiz_id, idx, question, choices, correct_index, explanation, anchors, fingerprint, area, reask_of, stale)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			quizID, i, q.Question, string(choices), q.CorrectIndex, q.Explanation, string(anchors), q.Fingerprint, q.Area,
+			q.ReaskOf, q.Stale); err != nil {
 			return fmt.Errorf("storing question %d: %w", i+1, err)
 		}
 	}
 	return tx.Commit()
 }
 
-const questionColumns = `id, quiz_id, idx, question, choices, correct_index, explanation, anchors, fingerprint, area`
+const questionColumns = `id, quiz_id, idx, question, choices, correct_index, explanation, anchors, fingerprint, area, reask_of, stale`
 
 func scanQuestion(row scanner) (*Question, error) {
 	var q Question
 	var choices, anchors string
-	err := row.Scan(&q.ID, &q.QuizID, &q.Index, &q.Question, &choices, &q.CorrectIndex, &q.Explanation, &anchors, &q.Fingerprint, &q.Area)
+	err := row.Scan(&q.ID, &q.QuizID, &q.Index, &q.Question, &choices, &q.CorrectIndex, &q.Explanation, &anchors, &q.Fingerprint, &q.Area,
+		&q.ReaskOf, &q.Stale)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -364,7 +376,8 @@ func (s *Store) Attempts(ctx context.Context, quizID int64) (map[int64]Attempt, 
 
 // RecordAttempt stores a and the area's new mastery, which next computes
 // from the current one (found is false for an area seen the first time).
-func (s *Store) RecordAttempt(ctx context.Context, a Attempt, area string, next func(m Mastery, found bool) Mastery) error {
+// When next returns false the mastery stays as it was.
+func (s *Store) RecordAttempt(ctx context.Context, a Attempt, area string, next func(m Mastery, found bool) (Mastery, bool)) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -386,7 +399,10 @@ func (s *Store) RecordAttempt(ctx context.Context, a Attempt, area string, next 
 		return err
 	}
 	m.UpdatedAt = time.Unix(updated, 0).UTC()
-	m = next(m, found)
+	m, update := next(m, found)
+	if !update {
+		return tx.Commit()
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO mastery (area, box, due, correct, wrong, updated_at) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (area) DO UPDATE SET box = excluded.box, due = excluded.due, correct = excluded.correct,
 		wrong = excluded.wrong, updated_at = excluded.updated_at`,
@@ -463,16 +479,80 @@ func (s *Store) History(ctx context.Context, limit int) ([]QuizScore, error) {
 	var out []QuizScore
 	for rows.Next() {
 		var qs QuizScore
-		var focus string
+		var focus, reasks string
 		var created, updated int64
 		if err := rows.Scan(&qs.ID, &qs.Date, &qs.Status, &qs.Trigger, &qs.Model, &qs.Effort, &qs.RunID,
-			&qs.QuestionCount, &focus, &qs.Error, &created, &updated, &qs.Total, &qs.Answered, &qs.Correct); err != nil {
+			&qs.QuestionCount, &focus, &reasks, &qs.Error, &created, &updated, &qs.Total, &qs.Answered, &qs.Correct); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(focus), &qs.Focus)
+		_ = json.Unmarshal([]byte(reasks), &qs.Reasks)
 		qs.CreatedAt = time.Unix(created, 0).UTC()
 		qs.UpdatedAt = time.Unix(updated, 0).UTC()
 		out = append(out, qs)
+	}
+	return out, rows.Err()
+}
+
+// ReaskCandidates returns up to limit missed questions to ask again, the
+// longest missed first: answered wrong, not stale, not asked again yet, in
+// an area due on or before date.
+func (s *Store) ReaskCandidates(ctx context.Context, date string, limit int) ([]Question, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+prefixed("q.", questionColumns)+`
+		FROM questions q
+		JOIN attempts a ON a.question_id = q.id AND NOT a.correct
+		JOIN mastery m ON m.area = q.area AND m.due <= ?
+		WHERE NOT q.stale AND NOT EXISTS (SELECT 1 FROM questions r WHERE r.reask_of = q.id)
+		ORDER BY a.answered_at, q.id LIMIT ?`, date, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Question
+	for rows.Next() {
+		q, err := scanQuestion(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *q)
+	}
+	return out, rows.Err()
+}
+
+// MarkStale records that the code question id points at changed.
+func (s *Store) MarkStale(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE questions SET stale = 1 WHERE id = ?`, id)
+	return err
+}
+
+// DayScore is how the user did on the quizzes of one day.
+type DayScore struct {
+	Date     string
+	Total    int
+	Answered int
+	Correct  int
+}
+
+// DayScores returns, per quiz date on or after since, the ready quizzes'
+// questions, answers and correct answers, oldest first.
+func (s *Store) DayScores(ctx context.Context, since string) ([]DayScore, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT z.date, COUNT(q.id), COUNT(a.id), COALESCE(SUM(a.correct), 0)
+		FROM quizzes z
+		JOIN questions q ON q.quiz_id = z.id
+		LEFT JOIN attempts a ON a.question_id = q.id
+		WHERE z.status = ? AND z.date >= ?
+		GROUP BY z.date ORDER BY z.date`, StatusReady, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DayScore
+	for rows.Next() {
+		var d DayScore
+		if err := rows.Scan(&d.Date, &d.Total, &d.Answered, &d.Correct); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
 	}
 	return out, rows.Err()
 }

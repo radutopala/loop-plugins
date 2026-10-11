@@ -139,7 +139,7 @@ func (s *StoreSuite) TestQuizLookups() {
 	s.Require().ErrorIs(err, ErrNotFound)
 }
 
-func (s *StoreSuite) TestRunIDAndFocus() {
+func (s *StoreSuite) TestRunIDAndPlan() {
 	q := s.newQuiz(StatusGenerating, s.now)
 	s.Require().NoError(s.st.SetRunID(s.ctx, q.ID, "run-1", s.now))
 	// A second run id doesn't replace the first.
@@ -152,10 +152,13 @@ func (s *StoreSuite) TestRunIDAndFocus() {
 	_, err = s.st.UnclaimedQuiz(s.ctx)
 	s.Require().ErrorIs(err, ErrNotFound)
 
-	s.Require().NoError(s.st.SetFocus(s.ctx, q.ID, []string{"a.go", "b.go"}))
+	s.Require().Empty(q.Reasks)
+	s.Require().NoError(s.st.SetPlan(s.ctx, q.ID, []string{"a.go", "b.go"}, []int64{7, 9}, 3))
 	got, err = s.st.Quiz(s.ctx, q.ID)
 	s.Require().NoError(err)
 	s.Require().Equal([]string{"a.go", "b.go"}, got.Focus)
+	s.Require().Equal([]int64{7, 9}, got.Reasks)
+	s.Require().Equal(3, got.QuestionCount)
 }
 
 func (s *StoreSuite) TestTransitionAndExpire() {
@@ -233,13 +236,13 @@ func (s *StoreSuite) TestAttemptsAndMastery() {
 	s.Require().NoError(err)
 
 	var seen []bool
-	next := func(m Mastery, found bool) Mastery {
+	next := func(m Mastery, found bool) (Mastery, bool) {
 		seen = append(seen, found)
 		m.Box++
 		m.Correct++
 		m.Due = "2026-10-12"
 		m.UpdatedAt = s.now
-		return m
+		return m, true
 	}
 	s.Require().NoError(s.st.RecordAttempt(s.ctx, Attempt{QuestionID: qs[0].ID, ChosenIndex: 1, Correct: true, AnsweredAt: s.now}, "pkg", next))
 	s.Require().ErrorIs(s.st.RecordAttempt(s.ctx, Attempt{QuestionID: qs[0].ID, ChosenIndex: 0, AnsweredAt: s.now}, "pkg", next), ErrAlreadyAnswered)
@@ -274,7 +277,7 @@ func (s *StoreSuite) TestHistory() {
 	s.Require().NoError(s.st.SaveQuestions(s.ctx, ready.ID, sampleQuestions(), s.now))
 	qs, err := s.st.Questions(s.ctx, ready.ID)
 	s.Require().NoError(err)
-	keep := func(m Mastery, _ bool) Mastery { m.Box, m.Due = 1, "2026-10-11"; return m }
+	keep := func(m Mastery, _ bool) (Mastery, bool) { m.Box, m.Due = 1, "2026-10-11"; return m, true }
 	s.Require().NoError(s.st.RecordAttempt(s.ctx, Attempt{QuestionID: qs[0].ID, Correct: true, AnsweredAt: s.now}, "pkg", keep))
 	failed := s.newQuiz(StatusFailed, s.now)
 
@@ -288,6 +291,79 @@ func (s *StoreSuite) TestHistory() {
 	s.Require().Equal(2, h[1].Total)
 	s.Require().Equal(1, h[1].Answered)
 	s.Require().Equal(1, h[1].Correct)
+}
+
+// answer records an attempt at question id that sets area's mastery due on due.
+func (s *StoreSuite) answer(id int64, correct bool, at time.Time, area, due string) {
+	set := func(m Mastery, _ bool) (Mastery, bool) { m.Box, m.Due, m.UpdatedAt = 1, due, at; return m, true }
+	s.Require().NoError(s.st.RecordAttempt(s.ctx, Attempt{QuestionID: id, Correct: correct, AnsweredAt: at}, area, set))
+}
+
+func (s *StoreSuite) TestReaskCandidates() {
+	q := s.newQuiz(StatusGenerating, s.now)
+	three := append(sampleQuestions(), Question{Question: "Q3?", Choices: []string{"a", "b"}, Anchors: []Anchor{}, Fingerprint: "f3", Area: "pkg"})
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, three, s.now))
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	// Q3 was missed first, then Q1; Q2 was right; "." isn't due yet.
+	s.answer(qs[2].ID, false, s.now, "pkg", "2026-10-11")
+	s.answer(qs[0].ID, false, s.now.Add(time.Minute), "pkg", "2026-10-11")
+	s.answer(qs[1].ID, true, s.now, ".", "2026-10-11")
+
+	got, err := s.st.ReaskCandidates(s.ctx, "2026-10-10", 5)
+	s.Require().NoError(err)
+	s.Require().Empty(got)
+	got, err = s.st.ReaskCandidates(s.ctx, "2026-10-11", 5)
+	s.Require().NoError(err)
+	s.Require().Len(got, 2)
+	s.Require().Equal(qs[2].ID, got[0].ID)
+	s.Require().Equal(qs[0].ID, got[1].ID)
+	s.Require().Equal(qs[0].Anchors, got[1].Anchors)
+	got, err = s.st.ReaskCandidates(s.ctx, "2026-10-11", 1)
+	s.Require().NoError(err)
+	s.Require().Len(got, 1)
+
+	// A stale question and one already asked again are left out.
+	s.Require().NoError(s.st.MarkStale(s.ctx, qs[2].ID))
+	next := s.newQuiz(StatusGenerating, s.now.AddDate(0, 0, 1))
+	again := qs[0]
+	again.ReaskOf = qs[0].ID
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, next.ID, []Question{again}, s.now))
+	got, err = s.st.ReaskCandidates(s.ctx, "2026-10-11", 5)
+	s.Require().NoError(err)
+	s.Require().Empty(got)
+
+	stale, err := s.st.Question(s.ctx, qs[2].ID)
+	s.Require().NoError(err)
+	s.Require().True(stale.Stale)
+	copies, err := s.st.Questions(s.ctx, next.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(qs[0].ID, copies[0].ReaskOf)
+	s.Require().Equal("Q1?", copies[0].Question)
+}
+
+func (s *StoreSuite) TestDayScores() {
+	day1 := s.newQuiz(StatusGenerating, s.now.AddDate(0, 0, -2))
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, day1.ID, sampleQuestions(), s.now))
+	qs, err := s.st.Questions(s.ctx, day1.ID)
+	s.Require().NoError(err)
+	s.answer(qs[0].ID, true, s.now, "pkg", "2026-10-11")
+	s.answer(qs[1].ID, false, s.now, ".", "2026-10-11")
+	day2 := s.newQuiz(StatusGenerating, s.now)
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, day2.ID, sampleQuestions(), s.now))
+	// Failed and generating quizzes don't count.
+	s.newQuiz(StatusFailed, s.now)
+	s.newQuiz(StatusGenerating, s.now)
+
+	got, err := s.st.DayScores(s.ctx, "2026-10-01")
+	s.Require().NoError(err)
+	s.Require().Equal([]DayScore{
+		{Date: "2026-10-08", Total: 2, Answered: 2, Correct: 1},
+		{Date: "2026-10-10", Total: 2},
+	}, got)
+	got, err = s.st.DayScores(s.ctx, "2026-10-09")
+	s.Require().NoError(err)
+	s.Require().Equal([]DayScore{{Date: "2026-10-10", Total: 2}}, got)
 }
 
 func (s *StoreSuite) TestSettings() {
@@ -310,6 +386,7 @@ func (s *StoreSuite) TestCorruptJSONIsReported() {
 		check func() error
 	}{
 		{"quiz focus", `UPDATE quizzes SET focus = 'x'`, func() error { _, err := s.st.Quiz(s.ctx, q.ID); return err }},
+		{"quiz reasks", `UPDATE quizzes SET focus = '[]', reasks = 'x'`, func() error { _, err := s.st.Quiz(s.ctx, q.ID); return err }},
 		{"choices", `UPDATE questions SET choices = 'x'`, func() error { _, err := s.st.Questions(s.ctx, q.ID); return err }},
 		{"anchors", `UPDATE questions SET choices = '[]', anchors = 'x'`, func() error { _, err := s.st.Questions(s.ctx, q.ID); return err }},
 	}
@@ -327,7 +404,7 @@ func (s *StoreSuite) TestClosedDatabaseErrors() {
 	calls := map[string]func() error{
 		"CreateQuiz": func() error { return s.st.CreateQuiz(s.ctx, &Quiz{CreatedAt: s.now}) },
 		"SetRunID":   func() error { return s.st.SetRunID(s.ctx, 1, "r", s.now) },
-		"SetFocus":   func() error { return s.st.SetFocus(s.ctx, 1, nil) },
+		"SetPlan":    func() error { return s.st.SetPlan(s.ctx, 1, nil, nil, 1) },
 		"Transition": func() error {
 			_, err := s.st.Transition(s.ctx, 1, StatusGenerating, StatusFailed, "", s.now)
 			return err
@@ -344,6 +421,9 @@ func (s *StoreSuite) TestClosedDatabaseErrors() {
 		"SaveSettings":        func() error { return s.st.SaveSettings(s.ctx, Settings{}) },
 		"LatestQuiz":          func() error { _, err := s.st.LatestQuiz(s.ctx); return err },
 		"RecentQuestionTexts": func() error { _, err := s.st.RecentQuestionTexts(s.ctx, 1); return err },
+		"ReaskCandidates":     func() error { _, err := s.st.ReaskCandidates(s.ctx, "d", 1); return err },
+		"MarkStale":           func() error { return s.st.MarkStale(s.ctx, 1) },
+		"DayScores":           func() error { _, err := s.st.DayScores(s.ctx, "d"); return err },
 	}
 	for name, call := range calls {
 		s.Run(name, func() {
