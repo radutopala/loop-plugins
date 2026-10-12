@@ -47,7 +47,9 @@ func run(ctx context.Context, getenv func(string) string, manifestPath string, l
 	}
 	defer st.Close()
 
-	srv := server.New(quiz.New(st, env.Client(), logger), secret, m.Version, logger)
+	svc := quiz.New(st, env.Client(), logger)
+	svc.Recover(ctx)
+	srv := server.New(svc, secret, m.Version, logger)
 	defer srv.Close()
 
 	ln, err := env.Listen()

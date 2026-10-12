@@ -348,6 +348,42 @@ func paths(items []FocusItem) []string {
 
 // --- RunDone ---
 
+func (s *ServiceSuite) TestRecover() {
+	cases := []struct {
+		name, runID string
+		want        store.Status
+	}{
+		{"launch interrupted", "", store.StatusFailed},
+		{"run started", "run-1", store.StatusGenerating},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.SetupTest()
+			q := s.generating(tc.runID)
+			if tc.want == store.StatusFailed {
+				s.expectEvent(EventFailed)
+			}
+			s.svc.Recover(s.ctx)
+			got, err := s.st.Quiz(s.ctx, q.ID)
+			s.Require().NoError(err)
+			s.Require().Equal(tc.want, got.Status)
+			s.TearDownTest()
+		})
+	}
+}
+
+func (s *ServiceSuite) TestRecoverNothingGenerating() {
+	s.svc.Recover(s.ctx)
+}
+
+func (s *ServiceSuite) TestRecoverStoreError() {
+	s.Require().NoError(s.st.Close())
+	s.svc.Recover(s.ctx)
+	st, err := store.Open(s.ctx, s.dbPath)
+	s.Require().NoError(err)
+	s.st = st
+}
+
 func (s *ServiceSuite) TestRunDone() {
 	cases := []struct {
 		name, status, errMsg, want string

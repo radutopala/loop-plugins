@@ -308,6 +308,20 @@ func (s *Service) fresh(ctx context.Context, anchors []store.Anchor) (bool, erro
 	return true, nil
 }
 
+// Recover fails the quiz a previous process left generating before it
+// stored the quiz's run id: the process stopped while launching it, so no run
+// will finish it.
+func (s *Service) Recover(ctx context.Context) {
+	q, err := s.Store.UnclaimedQuiz(ctx)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		s.Logger.Error("reading the quiz left generating", "err", err)
+	default:
+		s.fail(ctx, q.ID, "the plugin restarted before the quiz's run started")
+	}
+}
+
 // fail marks quiz id failed with msg if it is still generating.
 func (s *Service) fail(ctx context.Context, id int64, msg string) {
 	ok, err := s.Store.Transition(ctx, id, store.StatusGenerating, store.StatusFailed, msg, s.Now())
