@@ -28,6 +28,7 @@ func New(svc *quiz.Service, secret, version string, logger *slog.Logger) *Server
 	s := &Server{Quiz: svc}
 	x := http.NewServeMux()
 	x.HandleFunc("GET /quizzes/current", s.currentQuiz)
+	x.HandleFunc("POST /quizzes/current/seen", s.seen)
 	x.HandleFunc("POST /quizzes", s.newQuiz)
 	x.HandleFunc("GET /quizzes/{id}", s.getQuiz)
 	x.HandleFunc("POST /attempts", s.attempt)
@@ -81,6 +82,15 @@ func (s *Server) currentQuiz(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pluginsdk.WriteJSON(w, http.StatusOK, v)
+}
+
+// seen clears the badge once the panel shows today's quiz.
+func (s *Server) seen(w http.ResponseWriter, r *http.Request) {
+	if err := s.Quiz.Seen(r.Context()); err != nil {
+		s.internal(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // getQuiz returns a past quiz with its questions and answers, for History.

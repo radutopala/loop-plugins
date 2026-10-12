@@ -432,12 +432,14 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 	} else if err != nil {
 		return pluginsdk.ToolResult{}, err
 	}
+	// The badge goes up before the ready event: a panel showing the quiz
+	// clears it on that event, and must find it there.
+	if err := s.Loop.SetBadge(ctx, badgeText, badgeTitle); err != nil {
+		s.Logger.Warn("setting the badge", "err", err)
+	}
 	s.event(ctx, EventReady, map[string]any{"quiz_id": q.ID})
 	if err := s.Loop.Notify(ctx, "Cognitive test", "Today's quiz is ready"); err != nil {
 		s.Logger.Warn("sending the notification", "err", err)
-	}
-	if err := s.Loop.SetBadge(ctx, badgeText, badgeTitle); err != nil {
-		s.Logger.Warn("setting the badge", "err", err)
 	}
 	return pluginsdk.ToolResult{Content: fmt.Sprintf("Saved %d questions; the quiz is ready. You are done.", added)}, nil
 }
@@ -517,6 +519,11 @@ func (s *Service) Answer(ctx context.Context, id int64, chosen int) (*Grade, err
 	}
 	s.finish(ctx, q.QuizID)
 	return &Grade{Correct: correct, CorrectIndex: q.CorrectIndex, Explanation: q.Explanation, Anchors: q.Anchors, Stale: stale}, nil
+}
+
+// Seen clears the badge: the owner has seen today's quiz in the panel.
+func (s *Service) Seen(ctx context.Context) error {
+	return s.Loop.ClearBadge(ctx)
 }
 
 func (s *Service) clearBadge(ctx context.Context) {

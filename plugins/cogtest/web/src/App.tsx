@@ -128,6 +128,23 @@ export function App({ port }: { port: Promise<MessagePort> }) {
     bridge?.call("ui.set_title", { title }).catch(() => {});
   }, [bridge, title]);
 
+  // Today's quiz on screen clears its badge on the channel's row: once per
+  // quiz, and only while the pane shows, not from a pane in a hidden tab.
+  const todayRef = useRef<HTMLElement>(null);
+  const seenQuiz = useRef<number | null>(null);
+  const readyQuiz = today && "data" in today && today.data.quiz?.status === "ready" ? today.data.quiz.id : null;
+  useEffect(() => {
+    const el = todayRef.current;
+    if (!bridge || !el || tab !== "today" || readyQuiz === null || seenQuiz.current === readyQuiz) return;
+    const io = new IntersectionObserver((entries) => {
+      if (seenQuiz.current === readyQuiz || !entries.some((e) => e.isIntersecting)) return;
+      seenQuiz.current = readyQuiz;
+      bridge.api("POST", "quizzes/current/seen").catch(() => {});
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [bridge, tab, readyQuiz]);
+
   const selectTab = (next: Tab) => {
     setTab(next);
     if (!bridge) return;
@@ -250,7 +267,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
         </div>
       </header>
       <main>
-        <section id="view-today" role="tabpanel" aria-label="Today" hidden={tab !== "today"}>
+        <section ref={todayRef} id="view-today" role="tabpanel" aria-label="Today" hidden={tab !== "today"}>
           {!today ? (
             <p className="muted">{bridge ? "Loading…" : "Connecting to Loop…"}</p>
           ) : "error" in today ? (

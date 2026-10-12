@@ -236,6 +236,17 @@ func (s *ServerSuite) TestCurrentAndAttempts() {
 	s.Require().Equal(http.StatusBadRequest, code)
 }
 
+func (s *ServerSuite) TestSeen() {
+	s.loop.On("ClearBadge", mock.Anything).Return(nil).Once()
+	code, _ := s.do(http.MethodPost, "/x/quizzes/current/seen", "")
+	s.Require().Equal(http.StatusNoContent, code)
+
+	s.loop.On("ClearBadge", mock.Anything).Return(errors.New("loop down")).Once()
+	code, body := s.do(http.MethodPost, "/x/quizzes/current/seen", "")
+	s.Require().Equal(http.StatusInternalServerError, code)
+	s.Require().Contains(body["error"], "loop down")
+}
+
 func (s *ServerSuite) TestNewQuiz() {
 	// The generation waits until the second request is in, so the first
 	// quiz still generates when it comes.
