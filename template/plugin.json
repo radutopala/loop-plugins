@@ -1,0 +1,33 @@
+// example: counts the channel's files. A starting point for a new plugin.
+{
+  "id": "example",
+  "name": "Example",
+  "version": "0.1.0",
+  "api": "1",
+  "capabilities": ["files.read", "ui.panel", "ui.notification.notify"],
+  "tools": [
+    {
+      "name": "count_lines",
+      "description": "Counts the lines of one file of the channel, given its repo-relative path.",
+      "input_schema": {
+        "type": "object",
+        "required": ["path"],
+        "properties": { "path": { "type": "string", "minLength": 1 } },
+      },
+    },
+  ],
+  // Run from Tasks, a workflow's plugin node, or the panel's button.
+  "actions": [{ "id": "count" }],
+  "settings": {
+    "glob": {
+      "type": "string",
+      "title": "Files to count",
+      "description": "A glob matched against each file's path or base name, such as *.go. Empty counts every file.",
+      "default": "",
+    },
+  },
+  "ui": {
+    "panels": [{ "id": "main", "label": "Example", "entry": "ui/main/index.html", "singleton": true }],
+  },
+  "resources": { "memory": "64m", "cpus": 0.25 },
+}

@@ -1,0 +1,8 @@
+Dockerfile
+.dockerignore
+*_test.go
+.golangci.yml
+README.md
+new.sh
+web/node_modules
+web/dist

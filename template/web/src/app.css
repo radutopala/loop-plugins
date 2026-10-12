@@ -1,0 +1,61 @@
+/* Loop sets --bg, --surface, --fg, --muted, --border, --accent, --success,
+   --danger, --font and --mono on <html> (syncTheme). */
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font, system-ui, sans-serif);
+  font-size: 13px;
+}
+
+main {
+  padding: 12px 16px;
+}
+
+nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+nav a {
+  padding: 4px 0;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+nav a[aria-current="true"] {
+  color: var(--fg);
+  border-bottom: 2px solid var(--accent);
+}
+
+code {
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.big {
+  font-size: 24px;
+}
+
+.error {
+  color: var(--danger);
+}
+
+button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
