@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { chartPoints, chartY, dayTitle, HEATMAP_WEEKS, heatmapCells, localDate, scoreText } from "./history";
 import { QuestionCard } from "./TodayView";
+import { areaLabel } from "./title";
 import type { Day, History, HistoryQuiz, Quiz } from "./types";
 
 interface HistoryProps {
@@ -60,7 +61,7 @@ export function HistoryView({ history, loadQuiz, onOpenFile }: HistoryProps) {
           <tbody>
             {mastery.map((m) => (
               <tr key={m.area}>
-                <td>{m.area}</td>
+                <td>{areaLabel(m.area)}</td>
                 <td title={`Box ${m.box} of ${m.max_box}`}>
                   <Boxes box={m.box} max={m.max_box || 5} />
                 </td>

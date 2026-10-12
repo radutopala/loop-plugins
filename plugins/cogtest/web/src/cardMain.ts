@@ -2,6 +2,7 @@
 // and sizes its frame to them.
 import { applyTheme, Bridge, listen, type Theme } from "./bridge";
 import { boxText, type CardData, type CardQuestion, dateText, fileText, moveKind, parseCard, scoreText, streakText } from "./card";
+import { areaLabel } from "./title";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -17,7 +18,7 @@ function question(q: CardQuestion, openFile: (path: string, line?: number) => vo
   text.title = q.question;
   li.append(text);
   const where = el("span", "where");
-  where.append(el("span", "", q.reask ? `${q.area} · asked again` : q.area));
+  where.append(el("span", "", q.reask ? `${areaLabel(q.area)} · asked again` : areaLabel(q.area)));
   if (q.path) {
     const file = el("button", "file", fileText(q));
     file.type = "button";
@@ -50,7 +51,7 @@ function render(root: HTMLElement, card: CardData | null, openFile: (path: strin
     const moves = el("div", "moves");
     moves.title = "Leitner boxes";
     for (const m of card.moves) {
-      const chip = el("span", `move ${moveKind(m)}`, `${m.area} ${boxText(m.from, card.max_box)} `);
+      const chip = el("span", `move ${moveKind(m)}`, `${areaLabel(m.area)} ${boxText(m.from, card.max_box)} `);
       chip.append(el("span", "arrow", "→"), ` ${boxText(m.to, card.max_box)}`);
       moves.append(chip);
     }

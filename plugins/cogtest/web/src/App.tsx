@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { type ApiResponse, applyTheme, Bridge, errorOf, type PluginEvent } from "./bridge";
 import { HistoryView } from "./HistoryView";
 import { TodayView } from "./TodayView";
+import { paneTitle } from "./title";
 import type { Grade, History, Question, Quiz, Settings, Today } from "./types";
 
 const POLL_MS = 20000;
@@ -119,6 +120,13 @@ export function App({ port }: { port: Promise<MessagePort> }) {
     const timer = setTimeout(() => loadCurrent(bridge), POLL_MS);
     return () => clearTimeout(timer);
   }, [bridge, today, loadCurrent]);
+
+  // The pane's header tells how today's quiz stands; a Loop without
+  // ui.set_title just keeps the panel's label.
+  const title = paneTitle(today && "data" in today ? today.data : null);
+  useEffect(() => {
+    bridge?.call("ui.set_title", { title }).catch(() => {});
+  }, [bridge, title]);
 
   const selectTab = (next: Tab) => {
     setTab(next);

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { letter } from "./history";
+import { areaLabel } from "./title";
 import type { Anchor, Answer, Question, Summary, Today } from "./types";
 
 interface TodayProps {
@@ -71,7 +72,7 @@ function SummaryCard({ summary: s }: { summary: Summary | null }) {
         title={`${s.correct} of ${s.answered} answers`}
       />
       <Stat value={String(s.due_areas)} label={s.due_areas === 1 ? "area due" : "areas due"} title="Areas due for review; the next quiz focuses on them" />
-      {s.weakest && <Stat value={s.weakest} label="weakest area" title="The area in the lowest box with a wrong answer" />}
+      {s.weakest && <Stat value={areaLabel(s.weakest)} label="weakest area" title="The area in the lowest box with a wrong answer" />}
     </section>
   );
 }
@@ -115,7 +116,7 @@ export function QuestionCard({
     <article className="card">
       <h3>
         Question {number}
-        {q.area ? ` · ${q.area}` : ""}
+        {q.area ? ` · ${areaLabel(q.area)}` : ""}
         {q.reask && (
           <span className="badge" title="You missed this one before">
             Re-ask
