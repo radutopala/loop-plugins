@@ -46,6 +46,12 @@ func (c *Client) Hotspots(ctx context.Context, limit int) ([]pluginsdk.Hotspot, 
 	return h, args.Error(1)
 }
 
+func (c *Client) HotspotsPage(ctx context.Context, limit, offset int) (*pluginsdk.Hotspots, error) {
+	args := c.Called(ctx, limit, offset)
+	h, _ := args.Get(0).(*pluginsdk.Hotspots)
+	return h, args.Error(1)
+}
+
 func (c *Client) StartRun(ctx context.Context, req pluginsdk.RunRequest) (*pluginsdk.Run, error) {
 	args := c.Called(ctx, req)
 	r, _ := args.Get(0).(*pluginsdk.Run)
