@@ -82,10 +82,15 @@ type Question struct {
 
 // Attempt is the user's answer to a question.
 type Attempt struct {
+	ID          int64
 	QuestionID  int64
 	ChosenIndex int
 	Correct     bool
 	AnsweredAt  time.Time
+	// BoxBefore and BoxAfter are the Leitner box of the question's area
+	// before and after the answer; 0 is an area not seen before.
+	BoxBefore int
+	BoxAfter  int
 }
 
 // Mastery is the Leitner state of an area of the code.
@@ -355,7 +360,7 @@ func (s *Store) Questions(ctx context.Context, quizID int64) ([]Question, error)
 // Attempts returns the user's answers to the questions of quiz quizID, by
 // question id.
 func (s *Store) Attempts(ctx context.Context, quizID int64) (map[int64]Attempt, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT a.question_id, a.chosen_index, a.correct, a.answered_at
+	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.question_id, a.chosen_index, a.correct, a.answered_at, a.box_before, a.box_after
 		FROM attempts a JOIN questions q ON q.id = a.question_id WHERE q.quiz_id = ?`, quizID)
 	if err != nil {
 		return nil, err
@@ -365,7 +370,7 @@ func (s *Store) Attempts(ctx context.Context, quizID int64) (map[int64]Attempt, 
 	for rows.Next() {
 		var a Attempt
 		var at int64
-		if err := rows.Scan(&a.QuestionID, &a.ChosenIndex, &a.Correct, &at); err != nil {
+		if err := rows.Scan(&a.ID, &a.QuestionID, &a.ChosenIndex, &a.Correct, &at, &a.BoxBefore, &a.BoxAfter); err != nil {
 			return nil, err
 		}
 		a.AnsweredAt = time.Unix(at, 0).UTC()
@@ -376,20 +381,23 @@ func (s *Store) Attempts(ctx context.Context, quizID int64) (map[int64]Attempt, 
 
 // RecordAttempt stores a and the area's new mastery, which next computes
 // from the current one (found is false for an area seen the first time).
-// When next returns false the mastery stays as it was.
+// When next returns false the mastery stays as it was. The attempt keeps
+// the area's box before and after.
 func (s *Store) RecordAttempt(ctx context.Context, a Attempt, area string, next func(m Mastery, found bool) (Mastery, bool)) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO attempts (question_id, chosen_index, correct, answered_at) VALUES (?, ?, ?, ?)`,
-		a.QuestionID, a.ChosenIndex, a.Correct, a.AnsweredAt.Unix()); err != nil {
+	res, err := tx.ExecContext(ctx, `INSERT INTO attempts (question_id, chosen_index, correct, answered_at) VALUES (?, ?, ?, ?)`,
+		a.QuestionID, a.ChosenIndex, a.Correct, a.AnsweredAt.Unix())
+	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return ErrAlreadyAnswered
 		}
 		return err
 	}
+	a.ID, _ = res.LastInsertId()
 	m := Mastery{Area: area}
 	var updated int64
 	err = tx.QueryRowContext(ctx, `SELECT box, due, correct, wrong, updated_at FROM mastery WHERE area = ?`, area).
@@ -399,17 +407,34 @@ func (s *Store) RecordAttempt(ctx context.Context, a Attempt, area string, next 
 		return err
 	}
 	m.UpdatedAt = time.Unix(updated, 0).UTC()
+	before := m.Box
 	m, update := next(m, found)
-	if !update {
-		return tx.Commit()
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO mastery (area, box, due, correct, wrong, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+	if update {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mastery (area, box, due, correct, wrong, updated_at) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT (area) DO UPDATE SET box = excluded.box, due = excluded.due, correct = excluded.correct,
 		wrong = excluded.wrong, updated_at = excluded.updated_at`,
-		area, m.Box, m.Due, m.Correct, m.Wrong, m.UpdatedAt.Unix()); err != nil {
+			area, m.Box, m.Due, m.Correct, m.Wrong, m.UpdatedAt.Unix()); err != nil {
+			return err
+		}
+	} else {
+		m.Box = before
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE attempts SET box_before = ?, box_after = ? WHERE id = ?`, before, m.Box, a.ID); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// ClaimCard records that quiz id's summary card is being posted. It
+// reports whether it wasn't already, so the card goes out once.
+func (s *Store) ClaimCard(ctx context.Context, id int64, now time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE quizzes SET card_posted_at = ? WHERE id = ? AND card_posted_at = 0`,
+		max(now.Unix(), 1), id)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
 }
 
 // RecentFingerprints returns the fingerprints of the newest limit questions.

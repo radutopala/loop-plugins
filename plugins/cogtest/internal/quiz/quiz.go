@@ -33,6 +33,12 @@ const (
 	EventReady   = "quiz_ready"
 	EventFailed  = "quiz_failed"
 
+	// CardID is the manifest's card posted when a quiz is done.
+	CardID = "summary"
+	// The badge on the channel's sidebar row while a quiz waits.
+	badgeText  = "quiz"
+	badgeTitle = "Today's quiz is ready"
+
 	dateLayout       = "2006-01-02"
 	historyLimit     = 200
 	avoidLimit       = 30
@@ -146,12 +152,20 @@ func (s *Service) Begin(ctx context.Context, trigger string, force bool) (*store
 	if err != nil {
 		return nil, err
 	}
+	prev, err := s.Store.History(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
 	q := &store.Quiz{
 		Date: now.Format(dateLayout), Status: store.StatusGenerating, Trigger: trigger,
 		Model: st.Model, Effort: st.Effort, QuestionCount: s.Count, CreatedAt: now,
 	}
 	if err := s.Store.CreateQuiz(ctx, q); err != nil {
 		return nil, err
+	}
+	// The new quiz replaces a ready one still waiting for answers.
+	if len(prev) == 1 && prev[0].Status == store.StatusReady && prev[0].Answered < prev[0].Total {
+		s.clearBadge(ctx)
 	}
 	return q, nil
 }
@@ -422,6 +436,9 @@ func (s *Service) Submit(ctx context.Context, runID string, input json.RawMessag
 	if err := s.Loop.Notify(ctx, "Cognitive test", "Today's quiz is ready"); err != nil {
 		s.Logger.Warn("sending the notification", "err", err)
 	}
+	if err := s.Loop.SetBadge(ctx, badgeText, badgeTitle); err != nil {
+		s.Logger.Warn("setting the badge", "err", err)
+	}
 	return pluginsdk.ToolResult{Content: fmt.Sprintf("Saved %d questions; the quiz is ready. You are done.", added)}, nil
 }
 
@@ -498,7 +515,137 @@ func (s *Service) Answer(ctx context.Context, id int64, chosen int) (*Grade, err
 			return nil, err
 		}
 	}
+	s.finish(ctx, q.QuizID)
 	return &Grade{Correct: correct, CorrectIndex: q.CorrectIndex, Explanation: q.Explanation, Anchors: q.Anchors, Stale: stale}, nil
+}
+
+func (s *Service) clearBadge(ctx context.Context) {
+	if err := s.Loop.ClearBadge(ctx); err != nil {
+		s.Logger.Warn("clearing the badge", "err", err)
+	}
+}
+
+// SummaryCard is the data of the card posted when a quiz is done.
+type SummaryCard struct {
+	QuizID int64  `json:"quiz_id"`
+	Date   string `json:"date"`
+	Score  Score  `json:"score"`
+	// Streak is the summary's streak, today included.
+	Streak    int            `json:"streak"`
+	MaxBox    int            `json:"max_box"`
+	Questions []CardQuestion `json:"questions"`
+	Moves     []BoxMove      `json:"moves"`
+}
+
+// CardQuestion is how one question of the quiz went.
+type CardQuestion struct {
+	Question string `json:"question"`
+	Area     string `json:"area"`
+	// Path and Line are the question's first anchor.
+	Path    string `json:"path,omitempty"`
+	Line    int    `json:"line,omitempty"`
+	Correct bool   `json:"correct"`
+	Reask   bool   `json:"reask"`
+}
+
+// BoxMove is the Leitner box an area went from and to over the quiz; 0 is
+// an area seen the first time.
+type BoxMove struct {
+	Area string `json:"area"`
+	From int    `json:"from"`
+	To   int    `json:"to"`
+}
+
+const cardQuestionLen = 140
+
+// finish posts quiz id's summary card and clears the badge once every
+// question is answered, once per quiz. Failures are only logged: the answer
+// is already stored.
+func (s *Service) finish(ctx context.Context, id int64) {
+	card, latest, err := s.claimSummary(ctx, id)
+	if err != nil {
+		s.Logger.Warn("preparing the summary card", "quiz", id, "err", err)
+		return
+	}
+	if card == nil {
+		return
+	}
+	if latest {
+		s.clearBadge(ctx)
+	}
+	title := fmt.Sprintf("Quiz results: %d/%d", card.Score.Correct, card.Score.Total)
+	if _, err := s.Loop.PostCard(ctx, CardID, title, card); err != nil {
+		s.Logger.Warn("posting the summary card", "quiz", id, "err", err)
+	}
+}
+
+// claimSummary returns quiz id's summary card when the quiz is done and its
+// card not posted yet, claiming it, and whether it is the newest quiz.
+func (s *Service) claimSummary(ctx context.Context, id int64) (*SummaryCard, bool, error) {
+	q, err := s.Store.Quiz(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	questions, err := s.Store.Questions(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	attempts, err := s.Store.Attempts(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(questions) == 0 || len(attempts) < len(questions) {
+		return nil, false, nil
+	}
+	sum, err := s.Summary(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	latest, err := s.Store.LatestQuiz(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	ok, err := s.Store.ClaimCard(ctx, id, s.Now())
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	return summaryCard(q, questions, attempts, sum.Streak), latest.ID == id, nil
+}
+
+// summaryCard is the card of quiz q, every question of which is answered.
+func summaryCard(q *store.Quiz, questions []store.Question, attempts map[int64]store.Attempt, streak int) *SummaryCard {
+	c := &SummaryCard{
+		QuizID: q.ID, Date: q.Date, Score: Score{Total: len(questions), Answered: len(questions)},
+		Streak: streak, MaxBox: len(leitnerDays), Questions: []CardQuestion{}, Moves: []BoxMove{},
+	}
+	// ids are the first and last attempt in each move's area.
+	idx := map[string]int{}
+	var ids [][2]int64
+	for _, qq := range questions {
+		a := attempts[qq.ID]
+		cq := CardQuestion{Question: oneLine(qq.Question, cardQuestionLen), Area: qq.Area, Correct: a.Correct, Reask: qq.ReaskOf != 0}
+		if len(qq.Anchors) > 0 {
+			cq.Path, cq.Line = qq.Anchors[0].Path, qq.Anchors[0].Start
+		}
+		c.Questions = append(c.Questions, cq)
+		if a.Correct {
+			c.Score.Correct++
+		}
+		i, ok := idx[qq.Area]
+		if !ok {
+			idx[qq.Area] = len(c.Moves)
+			c.Moves = append(c.Moves, BoxMove{Area: qq.Area, From: a.BoxBefore, To: a.BoxAfter})
+			ids = append(ids, [2]int64{a.ID, a.ID})
+			continue
+		}
+		if a.ID < ids[i][0] {
+			ids[i][0], c.Moves[i].From = a.ID, a.BoxBefore
+		}
+		if a.ID > ids[i][1] {
+			ids[i][1], c.Moves[i].To = a.ID, a.BoxAfter
+		}
+	}
+	return c
 }
 
 // QuizView is a quiz as the panel sees it.

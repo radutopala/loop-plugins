@@ -88,6 +88,20 @@ func (s *ServiceSuite) expectEvent(typ string) *mock.Call {
 	return s.loop.On("Event", mock.Anything, typ, mock.Anything).Return(nil).Once()
 }
 
+// expectReady expects the notification and badge of a quiz turning ready.
+func (s *ServiceSuite) expectReady() {
+	s.expectEvent(EventReady)
+	s.loop.On("Notify", mock.Anything, "Cognitive test", "Today's quiz is ready").Return(nil).Once()
+	s.loop.On("SetBadge", mock.Anything, "quiz", "Today's quiz is ready").Return(nil).Once()
+}
+
+// expectFinish expects the newest quiz's badge cleared and its summary card
+// posted under title.
+func (s *ServiceSuite) expectFinish(title any) *mock.Call {
+	s.loop.On("ClearBadge", mock.Anything).Return(nil).Once()
+	return s.loop.On("PostCard", mock.Anything, CardID, title, mock.Anything).Return(int64(1), nil).Once()
+}
+
 // --- Begin ---
 
 func (s *ServiceSuite) TestBegin() {
@@ -164,6 +178,7 @@ func (s *ServiceSuite) TestDailyStartsARun() {
 	}}, s.now))
 	qs, err := s.st.Questions(s.ctx, prev.ID)
 	s.Require().NoError(err)
+	s.expectFinish("Quiz results: 0/1")
 	_, err = s.svc.Answer(s.ctx, qs[0].ID, 1)
 	s.Require().NoError(err)
 	s.now = s.now.AddDate(0, 0, 1)
@@ -391,6 +406,7 @@ func (s *ServiceSuite) TestSubmitStoresAValidQuiz() {
 	s.expectFile("b.go", 2, 4, 40)
 	s.expectEvent(EventReady)
 	s.loop.On("Notify", mock.Anything, "Cognitive test", "Today's quiz is ready").Return(errors.New("only logged")).Once()
+	s.loop.On("SetBadge", mock.Anything, "quiz", "Today's quiz is ready").Return(errors.New("only logged")).Once()
 
 	res, err := s.svc.Submit(s.ctx, "r1", input(good("What does A do?", "pkg/a.go"), good("What does B do?", "./b.go")))
 	s.Require().NoError(err)
@@ -420,8 +436,7 @@ func (s *ServiceSuite) TestSubmitClaimsAnUnclaimedQuiz() {
 	q := s.generating("")
 	s.expectFile("a.go", 2, 4, 40)
 	s.expectFile("b.go", 2, 4, 40)
-	s.expectEvent(EventReady)
-	s.loop.On("Notify", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	s.expectReady()
 
 	res, err := s.svc.Submit(s.ctx, "early-run", input(good("A?", "a.go"), good("B?", "b.go")))
 	s.Require().NoError(err)
@@ -611,6 +626,8 @@ func (s *ServiceSuite) TestSubmitReportsEveryProblem() {
 func (s *ServiceSuite) TestSubmitRejectsRepeats() {
 	prev := s.generating("old")
 	s.Require().NoError(s.st.SaveQuestions(s.ctx, prev.ID, []store.Question{{Question: "Old?", Fingerprint: Fingerprint("Old?")}}, s.now))
+	// The new quiz replaces the unanswered one, so its badge goes.
+	s.loop.On("ClearBadge", mock.Anything).Return(nil).Once()
 	s.generating("r1")
 	s.expectFile("a.go", 2, 4, 40)
 
@@ -645,6 +662,7 @@ func (s *ServiceSuite) TestAnswer() {
 	s.Require().NoError(err)
 	s.Require().Equal(&Grade{Correct: true, CorrectIndex: 2, Explanation: "see a.go", Anchors: qs[0].Anchors}, g)
 
+	s.expectFinish("Quiz results: 1/2")
 	g, err = s.svc.Answer(s.ctx, qs[1].ID, 1)
 	s.Require().NoError(err)
 	s.Require().False(g.Correct)
@@ -844,8 +862,7 @@ func (s *ServiceSuite) TestSubmitAppendsReasks() {
 	q := s.generating("r1")
 	s.Require().NoError(s.st.SetPlan(s.ctx, q.ID, nil, []int64{old[0].ID, 999}, 1))
 	s.expectFile("pkg/a.go", 2, 4, 40)
-	s.expectEvent(EventReady)
-	s.loop.On("Notify", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	s.expectReady()
 
 	res, err := s.svc.Submit(s.ctx, "r1", input(good("What does A do?", "pkg/a.go")))
 	s.Require().NoError(err)
@@ -918,6 +935,7 @@ func (s *ServiceSuite) TestAnswerChecksTheCode() {
 			if tt.correct {
 				chosen = 1
 			}
+			s.expectFinish(mock.Anything)
 
 			g, err := s.svc.Answer(s.ctx, qs[0].ID, chosen)
 			s.Require().NoError(err)
@@ -987,6 +1005,7 @@ func (s *ServiceSuite) TestSummary() {
 	// Answering today extends it.
 	qs, err := s.st.Questions(s.ctx, today.ID)
 	s.Require().NoError(err)
+	s.expectFinish("Quiz results: 1/1")
 	_, err = s.svc.Answer(s.ctx, qs[0].ID, 0)
 	s.Require().NoError(err)
 	v, err = s.svc.Summary(s.ctx)
@@ -1005,6 +1024,165 @@ func (s *ServiceSuite) TestSummary() {
 		{Date: "2026-10-10", Score: Score{Total: 1, Answered: 1, Correct: 1}},
 	}, h.Days[1:])
 	s.Require().Equal("2026-08-01", h.Days[0].Date)
+}
+
+// --- Summary card and badge ---
+
+func (s *ServiceSuite) TestFinishingAQuizPostsItsCardOnce() {
+	// Yesterday's quiz puts pkg in box 1 and starts the streak.
+	old := s.answered("2026-10-09", "2026-10-10", true, store.Question{Question: "Old?", Area: "pkg"})
+	q := s.generating("")
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, []store.Question{
+		{Question: "What does\n A do?", Choices: []string{"a", "b"}, Fingerprint: "a", Area: "pkg",
+			Anchors: []store.Anchor{{Path: "pkg/a.go", Start: 3, End: 5}, {Path: "pkg/z.go", Start: 1, End: 1}}},
+		{Question: "B?", Choices: []string{"a", "b"}, CorrectIndex: 1, Fingerprint: "b", Area: "web",
+			Anchors: []store.Anchor{{Path: "web/b.ts", Start: 10, End: 12}}},
+		{Question: "Old?", Choices: []string{"a", "b"}, Fingerprint: "old", Area: "pkg", ReaskOf: old[0].ID},
+	}, s.now))
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+
+	// Out of order: the re-ask right (pkg 1 → 2), then A wrong (pkg back
+	// to 1), then B right in a new area (web 0 → 2).
+	_, err = s.svc.Answer(s.ctx, qs[2].ID, 0)
+	s.Require().NoError(err)
+	_, err = s.svc.Answer(s.ctx, qs[0].ID, 1)
+	s.Require().NoError(err)
+	var card *SummaryCard
+	s.expectFinish("Quiz results: 2/3").Run(func(args mock.Arguments) { card = args.Get(3).(*SummaryCard) })
+	_, err = s.svc.Answer(s.ctx, qs[1].ID, 1)
+	s.Require().NoError(err)
+
+	s.Require().Equal(&SummaryCard{
+		QuizID: q.ID, Date: "2026-10-10", Score: Score{Total: 3, Answered: 3, Correct: 2}, Streak: 2, MaxBox: 5,
+		Questions: []CardQuestion{
+			{Question: "What does A do?", Area: "pkg", Path: "pkg/a.go", Line: 3},
+			{Question: "B?", Area: "web", Path: "web/b.ts", Line: 10, Correct: true},
+			{Question: "Old?", Area: "pkg", Correct: true, Reask: true},
+		},
+		Moves: []BoxMove{{Area: "pkg", From: 1, To: 1}, {Area: "web", From: 0, To: 2}},
+	}, card)
+	b, err := json.Marshal(card)
+	s.Require().NoError(err)
+	s.Require().JSONEq(fmt.Sprintf(`{"quiz_id":%d,"date":"2026-10-10","score":{"total":3,"answered":3,"correct":2},"streak":2,"max_box":5,
+		"questions":[
+			{"question":"What does A do?","area":"pkg","path":"pkg/a.go","line":3,"correct":false,"reask":false},
+			{"question":"B?","area":"web","path":"web/b.ts","line":10,"correct":true,"reask":false},
+			{"question":"Old?","area":"pkg","correct":true,"reask":true}],
+		"moves":[{"area":"pkg","from":1,"to":1},{"area":"web","from":0,"to":2}]}`, q.ID), string(b))
+
+	// Once posted, it isn't posted again.
+	s.svc.finish(s.ctx, q.ID)
+	_, err = s.svc.Answer(s.ctx, qs[1].ID, 1)
+	s.Require().ErrorIs(err, ErrAnswered)
+}
+
+func (s *ServiceSuite) TestFinishingAnOlderQuizLeavesTheBadge() {
+	older, qs := s.readyQuiz()
+	// The new quiz replaces the unanswered one and takes its badge.
+	s.loop.On("ClearBadge", mock.Anything).Return(nil).Once()
+	s.generating("r2")
+
+	_, err := s.svc.Answer(s.ctx, qs[0].ID, 2)
+	s.Require().NoError(err)
+	s.loop.On("PostCard", mock.Anything, CardID, "Quiz results: 1/2", mock.MatchedBy(func(c *SummaryCard) bool {
+		return c.QuizID == older.ID
+	})).Return(int64(7), nil).Once()
+	_, err = s.svc.Answer(s.ctx, qs[1].ID, 2)
+	s.Require().NoError(err)
+}
+
+func (s *ServiceSuite) TestBeginLeavesTheBadgeOfAnAnsweredQuiz() {
+	s.answered("2026-10-09", "2026-10-11", true, store.Question{Question: "Q?", Area: "pkg"})
+	s.generating("")
+	s.loop.AssertNotCalled(s.T(), "ClearBadge", mock.Anything)
+}
+
+func (s *ServiceSuite) TestBeginHistoryError() {
+	db, err := sql.Open("sqlite", "file:"+s.dbPath)
+	s.Require().NoError(err)
+	defer db.Close()
+	_, err = db.Exec(`DROP TABLE attempts`)
+	s.Require().NoError(err)
+	_, err = s.svc.Begin(s.ctx, "manual", true)
+	s.Require().ErrorContains(err, "no such table: attempts")
+}
+
+// logs points the service's logger at a buffer.
+func (s *ServiceSuite) logs() *strings.Builder {
+	var b strings.Builder
+	s.svc.Logger = slog.New(slog.NewTextHandler(&b, nil))
+	return &b
+}
+
+func (s *ServiceSuite) TestBadgeAndCardFailuresAreOnlyLogged() {
+	logs := s.logs()
+	q := s.generating("r1")
+	s.expectFile("a.go", 2, 4, 40)
+	s.expectFile("b.go", 2, 4, 40)
+	s.expectEvent(EventReady)
+	s.loop.On("Notify", mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	s.loop.On("SetBadge", mock.Anything, "quiz", "Today's quiz is ready").Return(errors.New("badge down")).Once()
+	res, err := s.svc.Submit(s.ctx, "r1", input(good("A?", "a.go"), good("B?", "b.go")))
+	s.Require().NoError(err)
+	s.Require().False(res.IsError, res.Content)
+	s.Require().Contains(logs.String(), "setting the badge")
+	s.Require().Contains(logs.String(), "badge down")
+
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	s.loop.On("File", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(&pluginsdk.File{Content: "code", TotalLines: 40}, nil)
+	_, err = s.svc.Answer(s.ctx, qs[0].ID, 0)
+	s.Require().NoError(err)
+	s.loop.On("ClearBadge", mock.Anything).Return(errors.New("clear down")).Once()
+	s.loop.On("PostCard", mock.Anything, CardID, "Quiz results: 2/2", mock.Anything).Return(int64(0), errors.New("card down")).Once()
+	g, err := s.svc.Answer(s.ctx, qs[1].ID, 0)
+	s.Require().NoError(err)
+	s.Require().True(g.Correct)
+	s.Require().Contains(logs.String(), "clearing the badge")
+	s.Require().Contains(logs.String(), "clear down")
+	s.Require().Contains(logs.String(), "posting the summary card")
+	s.Require().Contains(logs.String(), "card down")
+
+	// The failed card isn't posted again.
+	s.svc.finish(s.ctx, q.ID)
+}
+
+func (s *ServiceSuite) TestSummaryCardStoreErrorsAreOnlyLogged() {
+	tests := []struct {
+		name string
+		sql  string
+		id   func(quizID int64) int64
+	}{
+		{name: "unknown quiz", id: func(int64) int64 { return 999 }},
+		{name: "questions", sql: `ALTER TABLE questions RENAME COLUMN area TO zone`},
+		{name: "attempts", sql: `DROP TABLE attempts`},
+		{name: "summary", sql: `DROP TABLE mastery`},
+		{name: "newest quiz", sql: `INSERT INTO quizzes (date, status, focus, created_at, updated_at) VALUES ('2026-10-11', 'failed', 'x', 0, 0)`},
+		{name: "claim", sql: `CREATE TRIGGER no_card BEFORE UPDATE OF card_posted_at ON quizzes BEGIN SELECT RAISE(FAIL, 'cards are locked'); END`},
+	}
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.TearDownTest()
+			s.SetupTest()
+			logs := s.logs()
+			stored := s.answered("2026-10-10", "2026-10-11", true, store.Question{Question: "Q?", Area: "pkg"})
+			id := stored[0].QuizID
+			if tt.id != nil {
+				id = tt.id(id)
+			}
+			if tt.sql != "" {
+				db, err := sql.Open("sqlite", "file:"+s.dbPath)
+				s.Require().NoError(err)
+				_, err = db.Exec(tt.sql)
+				s.Require().NoError(err)
+				s.Require().NoError(db.Close())
+			}
+			s.svc.finish(s.ctx, id)
+			s.Require().Contains(logs.String(), "preparing the summary card")
+		})
+	}
 }
 
 func (s *ServiceSuite) TestSettings() {

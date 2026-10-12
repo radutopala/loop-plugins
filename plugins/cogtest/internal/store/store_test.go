@@ -272,6 +272,109 @@ func (s *StoreSuite) TestAttemptsAndMastery() {
 	s.Require().NotErrorIs(err, ErrAlreadyAnswered)
 }
 
+func (s *StoreSuite) TestAttemptsKeepTheBoxMove() {
+	q := s.newQuiz(StatusGenerating, s.now)
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, sampleQuestions(), s.now))
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	up := func(m Mastery, _ bool) (Mastery, bool) { m.Box += 2; return m, true }
+	keep := func(m Mastery, _ bool) (Mastery, bool) { m.Box = 9; return m, false }
+
+	cases := []struct {
+		name       string
+		id         int64
+		next       func(Mastery, bool) (Mastery, bool)
+		wantBefore int
+		wantAfter  int
+	}{
+		{"a new area moves up", qs[0].ID, up, 0, 2},
+		{"kept mastery stays", qs[1].ID, keep, 2, 2},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.Require().NoError(s.st.RecordAttempt(s.ctx, Attempt{QuestionID: tc.id, AnsweredAt: s.now}, "pkg", tc.next))
+			attempts, err := s.st.Attempts(s.ctx, q.ID)
+			s.Require().NoError(err)
+			a := attempts[tc.id]
+			s.Require().NotZero(a.ID)
+			s.Require().Equal(tc.wantBefore, a.BoxBefore)
+			s.Require().Equal(tc.wantAfter, a.BoxAfter)
+		})
+	}
+	s.Require().Less(s.attemptID(q.ID, qs[0].ID), s.attemptID(q.ID, qs[1].ID))
+}
+
+func (s *StoreSuite) attemptID(quizID, questionID int64) int64 {
+	attempts, err := s.st.Attempts(s.ctx, quizID)
+	s.Require().NoError(err)
+	return attempts[questionID].ID
+}
+
+func (s *StoreSuite) TestRecordAttemptRollsBackWhenTheMoveFails() {
+	q := s.newQuiz(StatusGenerating, s.now)
+	s.Require().NoError(s.st.SaveQuestions(s.ctx, q.ID, sampleQuestions(), s.now))
+	qs, err := s.st.Questions(s.ctx, q.ID)
+	s.Require().NoError(err)
+	_, err = s.st.db.Exec(`CREATE TRIGGER no_move BEFORE UPDATE OF box_after ON attempts BEGIN SELECT RAISE(FAIL, 'moves are locked'); END`)
+	s.Require().NoError(err)
+	next := func(m Mastery, _ bool) (Mastery, bool) { m.Box = 1; return m, true }
+	s.Require().ErrorContains(s.st.RecordAttempt(s.ctx, Attempt{QuestionID: qs[0].ID, AnsweredAt: s.now}, "pkg", next), "moves are locked")
+	attempts, err := s.st.Attempts(s.ctx, q.ID)
+	s.Require().NoError(err)
+	s.Require().Empty(attempts)
+	ms, err := s.st.MasteryList(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Empty(ms)
+}
+
+func (s *StoreSuite) TestClaimCard() {
+	q := s.newQuiz(StatusReady, s.now)
+	ok, err := s.st.ClaimCard(s.ctx, q.ID, s.now)
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	ok, err = s.st.ClaimCard(s.ctx, q.ID, s.now)
+	s.Require().NoError(err)
+	s.Require().False(ok, "a card goes out once")
+	// A zero clock still claims.
+	other := s.newQuiz(StatusReady, s.now)
+	ok, err = s.st.ClaimCard(s.ctx, other.ID, time.Unix(0, 0))
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	ok, err = s.st.ClaimCard(s.ctx, other.ID, s.now)
+	s.Require().NoError(err)
+	s.Require().False(ok)
+	ok, err = s.st.ClaimCard(s.ctx, 999, s.now)
+	s.Require().NoError(err)
+	s.Require().False(ok)
+}
+
+func (s *StoreSuite) TestBoxMoveMigratesOldAttempts() {
+	path := filepath.Join(s.T().TempDir(), "x.db")
+	old, err := openWith(s.ctx, path, Migrations[:2])
+	s.Require().NoError(err)
+	q := &Quiz{Date: "2026-10-10", Status: StatusGenerating, CreatedAt: s.now}
+	s.Require().NoError(old.CreateQuiz(s.ctx, q))
+	s.Require().NoError(old.SaveQuestions(s.ctx, q.ID, sampleQuestions(), s.now))
+	_, err = old.db.Exec(`INSERT INTO attempts (question_id, chosen_index, correct, answered_at)
+		SELECT id, 0, 1, 1 FROM questions WHERE quiz_id = ?`, q.ID)
+	s.Require().NoError(err)
+	s.Require().NoError(old.Close())
+
+	st, err := Open(s.ctx, path)
+	s.Require().NoError(err)
+	defer st.Close()
+	attempts, err := st.Attempts(s.ctx, q.ID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 2)
+	for _, a := range attempts {
+		s.Require().Zero(a.BoxBefore)
+		s.Require().Zero(a.BoxAfter)
+	}
+	ok, err := st.ClaimCard(s.ctx, q.ID, s.now)
+	s.Require().NoError(err)
+	s.Require().True(ok)
+}
+
 func (s *StoreSuite) TestHistory() {
 	ready := s.newQuiz(StatusGenerating, s.now.AddDate(0, 0, -1))
 	s.Require().NoError(s.st.SaveQuestions(s.ctx, ready.ID, sampleQuestions(), s.now))
@@ -423,6 +526,7 @@ func (s *StoreSuite) TestClosedDatabaseErrors() {
 		"RecentQuestionTexts": func() error { _, err := s.st.RecentQuestionTexts(s.ctx, 1); return err },
 		"ReaskCandidates":     func() error { _, err := s.st.ReaskCandidates(s.ctx, "d", 1); return err },
 		"MarkStale":           func() error { return s.st.MarkStale(s.ctx, 1) },
+		"ClaimCard":           func() error { _, err := s.st.ClaimCard(s.ctx, 1, s.now); return err },
 		"DayScores":           func() error { _, err := s.st.DayScores(s.ctx, "d"); return err },
 	}
 	for name, call := range calls {

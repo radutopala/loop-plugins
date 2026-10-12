@@ -77,6 +77,13 @@ ALTER TABLE questions ADD COLUMN reask_of INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE questions ADD COLUMN stale INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX questions_reask_of ON questions (reask_of);
 `},
+	// 3: the summary card posted once a quiz is done, and the Leitner box
+	// each answer moved its area from and to.
+	{Version: 3, SQL: `
+ALTER TABLE quizzes ADD COLUMN card_posted_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE attempts ADD COLUMN box_before INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE attempts ADD COLUMN box_after INTEGER NOT NULL DEFAULT 0;
+`},
 }
 
 // migrate applies the migrations db hasn't seen yet, each in its own

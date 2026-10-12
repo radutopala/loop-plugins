@@ -2,7 +2,7 @@
 {
   "id": "cogtest",
   "name": "Cognitive test",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "api": "1",
   "capabilities": [
     "files.read",
@@ -11,6 +11,8 @@
     "agent.readonly",
     "ui.panel",
     "ui.notification.notify",
+    "ui.notification.card",
+    "ui.badge",
     "ui.open_file",
     "schedule",
   ],
@@ -76,6 +78,8 @@
   },
   "ui": {
     "panels": [{ "id": "quiz", "label": "Cognitive test", "entry": "ui/quiz/index.html", "singleton": true }],
+    // Posted to the channel's notification drawer when a quiz is done.
+    "cards": [{ "id": "summary", "entry": "ui/card/index.html" }],
   },
   "resources": { "memory": "256m", "cpus": 0.5 },
 }

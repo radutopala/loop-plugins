@@ -187,6 +187,9 @@ func (s *ServerSuite) TestCurrentAndAttempts() {
 	question := cur["questions"].([]any)[0].(map[string]any)
 	s.Require().NotContains(question, "answer")
 
+	// The answer finishes the quiz: its card goes out and the badge goes.
+	s.loop.On("ClearBadge", mock.Anything).Return(nil).Once()
+	s.loop.On("PostCard", mock.Anything, quiz.CardID, "Quiz results: 1/1", mock.Anything).Return(int64(1), nil).Once()
 	cases := []struct {
 		name string
 		body string

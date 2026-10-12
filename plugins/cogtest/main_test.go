@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
@@ -15,6 +16,9 @@ import (
 
 	"github.com/radutopala/loop/pluginsdk"
 	"github.com/radutopala/loop/pluginsdk/pluginsdktest"
+
+	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/quiz"
+	"github.com/radutopala/loop-plugins/plugins/cogtest/internal/store"
 )
 
 type RunSuite struct {
@@ -124,4 +128,52 @@ func (s *RunSuite) TestConformance() {
 
 	cancel()
 	s.Require().NoError(<-done)
+}
+
+// TestBadgeAndSummaryCard runs a quiz against a fake Loop holding cogtest to
+// its manifest: the badge shows while the quiz waits, and answering it posts
+// the declared summary card and clears the badge.
+func (s *RunSuite) TestBadgeAndSummaryCard() {
+	ctx := context.Background()
+	m, err := pluginsdk.ReadManifest("plugin.json")
+	s.Require().NoError(err)
+	loop := pluginsdktest.NewFakeLoop(s.T(), pluginsdktest.Config{
+		Manifest: m,
+		Channel:  pluginsdk.Channel{Name: "proj", DirPath: "/src", Platform: "local"},
+		Files:    map[string]string{"main.go": "package main\n\nfunc main() {}\n"},
+	})
+	st, err := store.Open(ctx, filepath.Join(s.dir, "cogtest.db"))
+	s.Require().NoError(err)
+	defer st.Close()
+	svc := quiz.New(st, loop.Client(), s.logger)
+	svc.Count = 1
+
+	q, err := svc.Begin(ctx, "manual", true)
+	s.Require().NoError(err)
+	s.Require().NoError(st.SetRunID(ctx, q.ID, "r1", svc.Now()))
+	input, err := json.Marshal(map[string]any{"questions": []map[string]any{{
+		"question": "What does main do?", "choices": []string{"Nothing", "Serves HTTP", "Panics"}, "correct_index": 0,
+		"explanation": "See `main.go`: its body is empty.", "anchors": []map[string]any{{"path": "main.go", "start": 1, "end": 3}},
+	}}})
+	s.Require().NoError(err)
+	res, err := svc.Submit(ctx, "r1", input)
+	s.Require().NoError(err)
+	s.Require().False(res.IsError, res.Content)
+	s.Require().Equal(&pluginsdktest.Badge{Text: "quiz", Title: "Today's quiz is ready"}, loop.Badge())
+
+	qs, err := st.Questions(ctx, q.ID)
+	s.Require().NoError(err)
+	_, err = svc.Answer(ctx, qs[0].ID, 0)
+	s.Require().NoError(err)
+	s.Require().Nil(loop.Badge())
+	cards := loop.Cards()
+	s.Require().Len(cards, 1)
+	s.Require().Equal("summary", cards[0].Card)
+	s.Require().Equal("Quiz results: 1/1", cards[0].Title)
+	var data quiz.SummaryCard
+	s.Require().NoError(json.Unmarshal(cards[0].Data, &data))
+	s.Require().Equal(quiz.Score{Total: 1, Answered: 1, Correct: 1}, data.Score)
+	s.Require().Equal([]quiz.CardQuestion{{Question: "What does main do?", Area: ".", Path: "main.go", Line: 1, Correct: true}}, data.Questions)
+	s.Require().Equal([]quiz.BoxMove{{Area: ".", From: 0, To: 2}}, data.Moves)
+	s.Require().Equal(1, data.Streak)
 }

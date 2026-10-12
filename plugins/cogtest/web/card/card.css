@@ -1,0 +1,177 @@
+/* The summary card in the notification drawer. Loop's theme variables win
+   when the host sends them; the fallbacks follow the mode. */
+:root {
+  --cg-bg: #ffffff;
+  --cg-surface: #f5f6f8;
+  --cg-fg: #1f2328;
+  --cg-muted: #656d76;
+  --cg-border: #d0d7de;
+  --cg-accent: #0969da;
+  --cg-success: #1a7f37;
+  --cg-danger: #cf222e;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mode]) {
+    --cg-bg: #1e1f22;
+    --cg-surface: #2b2d31;
+    --cg-fg: #e6e6e6;
+    --cg-muted: #9da5b0;
+    --cg-border: #3f4248;
+    --cg-accent: #4f8ff7;
+    --cg-success: #3fb950;
+    --cg-danger: #f85149;
+    color-scheme: dark;
+  }
+}
+
+:root[data-mode="dark"] {
+  --cg-bg: #1e1f22;
+  --cg-surface: #2b2d31;
+  --cg-fg: #e6e6e6;
+  --cg-muted: #9da5b0;
+  --cg-border: #3f4248;
+  --cg-accent: #4f8ff7;
+  --cg-success: #3fb950;
+  --cg-danger: #f85149;
+  color-scheme: dark;
+}
+
+:root {
+  --c-bg: var(--bg, var(--cg-bg));
+  --c-surface: var(--surface, var(--cg-surface));
+  --c-fg: var(--fg, var(--cg-fg));
+  --c-muted: var(--muted, var(--cg-muted));
+  --c-border: var(--border, var(--cg-border));
+  --c-accent: var(--accent, var(--cg-accent));
+  --c-success: var(--success, var(--cg-success));
+  --c-danger: var(--danger, var(--cg-danger));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font: 12px / 1.45 var(--font, system-ui, -apple-system, "Segoe UI", sans-serif);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+
+.score {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--c-muted);
+}
+
+.streak {
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+}
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.question {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 0 6px;
+}
+
+.mark {
+  font-weight: 700;
+}
+
+.right .mark {
+  color: var(--c-success);
+}
+
+.wrong .mark {
+  color: var(--c-danger);
+}
+
+.text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.where {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  color: var(--c-muted);
+  min-width: 0;
+}
+
+.file {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-accent);
+  font: 11px var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.file:hover {
+  text-decoration: underline;
+}
+
+.moves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-border);
+}
+
+.move {
+  padding: 0 6px;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+
+.move.up .arrow {
+  color: var(--c-success);
+}
+
+.move.down .arrow {
+  color: var(--c-danger);
+}
