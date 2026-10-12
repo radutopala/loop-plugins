@@ -1,0 +1,45 @@
+# Checks, builds and installs one plugin, cogtest by default:
+#
+#   make check                 # go vet/test, golangci-lint and the web checks
+#   make install               # build the image and install it as a dev plugin
+#   make install PLUGIN=foo    # plugins/foo
+#   make check DIR=template    # any plugin dir
+#
+# The plugins build against the SDKs in a Loop checkout next to this repo;
+# LOOP points elsewhere.
+
+PLUGIN ?= cogtest
+DIR ?= plugins/$(PLUGIN)
+LOOP ?= $(abspath ../loop)
+LOOP_BIN ?= loop
+GOLANGCI_LINT_VERSION ?= v2.14.0
+# The tag `loop plugin:dev` would give the dir.
+TAG ?= loop-plugin-dev/$(notdir $(DIR)):latest
+
+.PHONY: check test lint web build install
+
+check: test lint web
+
+test:
+	cd $(DIR) && go vet ./... && go test -race ./...
+
+# go.mod replaces the SDK with a relative path that resolves to
+# /loop/pluginsdk from /src.
+lint:
+	docker run --rm -v "$(abspath $(DIR))":/src -v "$(LOOP)/pluginsdk":/loop/pluginsdk -w /src \
+		golangci/golangci-lint:$(GOLANGCI_LINT_VERSION) golangci-lint run --build-tags ui ./...
+
+web:
+	@if [ -f $(DIR)/web/package-lock.json ]; then \
+		cd $(DIR)/web && npm ci && npm run --if-present lint && \
+		npm run --if-present typecheck && npm run --if-present test && npm run build; \
+	fi
+
+build:
+	docker build \
+		--build-context pluginsdk=$(LOOP)/pluginsdk \
+		--build-context plugin-ui=$(LOOP)/app/packages/plugin-ui \
+		-t $(TAG) $(DIR)
+
+install: build
+	$(LOOP_BIN) plugin:install --dev --yes $(TAG)
