@@ -10,7 +10,7 @@
     "quality.read",
     "agent.readonly",
     "ui.panel",
-    "ui.notify",
+    "ui.notification.notify",
     "ui.open_file",
     "schedule",
   ],
