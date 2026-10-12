@@ -92,3 +92,25 @@ func (c *Client) PostCard(ctx context.Context, card, title string, data any) (in
 	args := c.Called(ctx, card, title, data)
 	return args.Get(0).(int64), args.Error(1)
 }
+
+func (c *Client) GitHead(ctx context.Context) (*pluginsdk.GitHead, error) {
+	args := c.Called(ctx)
+	g, _ := args.Get(0).(*pluginsdk.GitHead)
+	return g, args.Error(1)
+}
+
+func (c *Client) RunState(ctx context.Context, runID string) (*pluginsdk.RunState, error) {
+	args := c.Called(ctx, runID)
+	r, _ := args.Get(0).(*pluginsdk.RunState)
+	return r, args.Error(1)
+}
+
+func (c *Client) CancelRun(ctx context.Context, runID string) error {
+	return c.Called(ctx, runID).Error(0)
+}
+
+func (c *Client) OpenFile(ctx context.Context, path string, line int) (*pluginsdk.UIReply, error) {
+	args := c.Called(ctx, path, line)
+	r, _ := args.Get(0).(*pluginsdk.UIReply)
+	return r, args.Error(1)
+}
