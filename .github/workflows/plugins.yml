@@ -1,0 +1,204 @@
+# Builds and tests every plugin and the template, and publishes a plugin's
+# image when a tag <id>/v<version> is pushed. See the README's CI section.
+name: plugins
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["*/v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The plugins build against Loop's SDKs from a checkout next to this repo.
+  # Set the LOOP_REF repository variable to build against a branch or tag of
+  # Loop other than main.
+  LOOP_REPOSITORY: radutopala/loop
+  LOOP_REF: ${{ vars.LOOP_REF || 'main' }}
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.dirs.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: List the plugin dirs
+        id: dirs
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" = tag ]; then
+            dirs="plugins/${REF_NAME%%/v*}"
+            if [ ! -f "$dirs/plugin.json" ]; then
+              echo "::error::Tag $REF_NAME names no plugin: $dirs/plugin.json doesn't exist."
+              exit 1
+            fi
+          else
+            dirs=$(for f in plugins/*/plugin.json template/plugin.json; do [ -f "$f" ] && dirname "$f"; done)
+          fi
+          echo "dirs=$(printf '%s\n' "$dirs" | jq -Rcs 'split("\n") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+
+  plugin:
+    needs: discover
+    name: ${{ matrix.dir }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.discover.outputs.dirs) }}
+    env:
+      DIR: loop-plugins/${{ matrix.dir }}
+      PUBLISH: ${{ github.ref_type == 'tag' && matrix.dir != 'template' }}
+    defaults:
+      run:
+        working-directory: loop-plugins/${{ matrix.dir }}
+    steps:
+      # This repo and Loop side by side, as go.mod's replace and the UI's
+      # file: dependency on @loop/plugin-ui expect.
+      - uses: actions/checkout@v4
+        with:
+          path: loop-plugins
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.LOOP_REPOSITORY }}
+          ref: ${{ env.LOOP_REF }}
+          path: loop
+
+      - name: Read the manifest
+        id: manifest
+        run: |
+          read_field() { node "$GITHUB_WORKSPACE/loop-plugins/.github/scripts/manifest.mjs" plugin.json "$1"; }
+          id=$(read_field id)
+          version=$(read_field version)
+          {
+            echo "id=$id"
+            echo "version=$version"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/loop-plugin-$id"
+          } >> "$GITHUB_OUTPUT"
+      - name: Check the tag against the manifest
+        if: env.PUBLISH == 'true'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          ID: ${{ steps.manifest.outputs.id }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          if [ "$REF_NAME" != "$ID/v$VERSION" ]; then
+            echo "::error file=${{ matrix.dir }}/plugin.json::Tag $REF_NAME doesn't match the manifest's id and version ($ID/v$VERSION)."
+            exit 1
+          fi
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ env.DIR }}/go.mod
+          cache-dependency-path: ${{ env.DIR }}/go.sum
+      - name: Go vet and test
+        run: |
+          go vet ./...
+          go test -race ./...
+      - name: golangci-lint
+        if: hashFiles(format('{0}/.golangci.yml', env.DIR)) != ''
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.14.0
+          working-directory: ${{ env.DIR }}
+          args: --build-tags ui
+
+      - uses: actions/setup-node@v4
+        if: hashFiles(format('{0}/web/package-lock.json', env.DIR)) != ''
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ env.DIR }}/web/package-lock.json
+      - name: Web lint, typecheck, test and build
+        if: hashFiles(format('{0}/web/package-lock.json', env.DIR)) != ''
+        working-directory: ${{ env.DIR }}/web
+        run: |
+          npm ci
+          npm run --if-present lint
+          npm run --if-present typecheck
+          npm run --if-present test
+          npm run build
+
+      # The UI conformance check (tests built with -tags ui, such as the
+      # template's TestUI) loads the built panels in headless Chrome under
+      # Loop's content security policy. Ubuntu's AppArmor keeps Chrome's
+      # sandbox from starting unless unprivileged user namespaces are allowed.
+      - name: UI conformance
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          go test -tags ui -run UI ./...
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Refuse to overwrite a published version
+        if: env.PUBLISH == 'true'
+        env:
+          IMAGE: ${{ steps.manifest.outputs.image }}
+          VERSION: ${{ steps.manifest.outputs.version }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION is already published; bump the version in plugin.json."
+            exit 1
+          fi
+      - name: Build the image (linux/amd64, linux/arm64)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DIR }}
+          platforms: linux/amd64,linux/arm64
+          build-contexts: |
+            pluginsdk=${{ github.workspace }}/loop/pluginsdk
+            plugin-ui=${{ github.workspace }}/loop/app/packages/plugin-ui
+          push: ${{ env.PUBLISH == 'true' }}
+          provenance: false
+          tags: |
+            ${{ steps.manifest.outputs.image }}:${{ steps.manifest.outputs.version }}
+            ${{ steps.manifest.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.manifest.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.dir }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.dir }}
+
+      - name: Check for the signing key
+        id: signing
+        if: env.PUBLISH == 'true'
+        env:
+          KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          IMAGE: ${{ steps.manifest.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Image not signed::COSIGN_PRIVATE_KEY isn't set, so $IMAGE@$DIGEST was pushed unsigned."
+          fi
+      - uses: sigstore/cosign-installer@v3
+        if: steps.signing.outputs.enabled == 'true'
+      - name: Sign the image
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          IMAGE: ${{ steps.manifest.outputs.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$IMAGE@$DIGEST"
