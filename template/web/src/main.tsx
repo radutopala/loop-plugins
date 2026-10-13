@@ -1,4 +1,4 @@
-import { type Bridge, connect, createStorage, syncTheme } from "@loop/plugin-ui";
+import { type Bridge, connect, createStorage, syncTheme } from "@radutopala/plugin-ui";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./app.css";

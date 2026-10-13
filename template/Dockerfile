@@ -1,19 +1,15 @@
-# Build with Loop's panel SDK as a named context, from a Loop checkout:
-#   docker build \
-#     --build-context plugin-ui=<loop>/app/packages/plugin-ui \
+# syntax=docker/dockerfile:1
+# Build with a GitHub token that can read packages in NODE_AUTH_TOKEN, for
+# the panel SDK on GitHub Packages:
+#   docker build --secret id=NODE_AUTH_TOKEN,env=NODE_AUTH_TOKEN \
 #     -t loop-plugin-dev/example:latest .
-# The web stage lays the sources out as the repos are on disk, under /ws, so
-# the relative path in web/package.json reaches the SDK. The Go SDK is a
-# regular module dependency.
 
 # The UI and the binary build on the build machine's platform: the UI is
 # the same for every platform, and Go cross-compiles.
 FROM --platform=$BUILDPLATFORM node:24-alpine AS web
-COPY --from=plugin-ui package.json /ws/loop/app/packages/plugin-ui/package.json
-COPY --from=plugin-ui src /ws/loop/app/packages/plugin-ui/src
-WORKDIR /ws/loop-plugins/template/web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci
+WORKDIR /web
+COPY web/package.json web/package-lock.json web/.npmrc ./
+RUN --mount=type=secret,id=NODE_AUTH_TOKEN,env=NODE_AUTH_TOKEN npm ci
 COPY web/ ./
 RUN npm run build
 
@@ -32,6 +28,6 @@ LABEL dev.loop.plugin=1
 COPY --from=build /plugin /plugin
 COPY --from=build --chown=65532:65532 /data /data
 COPY plugin.json /loop-plugin/plugin.json
-COPY --from=web /ws/loop-plugins/template/web/dist/ /loop-plugin/ui/main/
+COPY --from=web /web/dist/ /loop-plugin/ui/main/
 USER 65532:65532
 ENTRYPOINT ["/plugin"]

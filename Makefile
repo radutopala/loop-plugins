@@ -5,12 +5,14 @@
 #   make install PLUGIN=foo    # plugins/foo
 #   make check DIR=template    # any plugin dir
 #
-# A panel on @loop/plugin-ui builds against it in a Loop checkout next to
-# this repo; LOOP points elsewhere. The Go SDK is a regular module.
+# A panel on @radutopala/plugin-ui installs it from GitHub Packages with the
+# token in NODE_AUTH_TOKEN, the GitHub CLI's by default; it needs the
+# read:packages scope (gh auth refresh -s read:packages).
 
 PLUGIN ?= cogtest
 DIR ?= plugins/$(PLUGIN)
-LOOP ?= $(abspath ../loop)
+NODE_AUTH_TOKEN ?= $(shell gh auth token 2>/dev/null)
+export NODE_AUTH_TOKEN
 LOOP_BIN ?= loop
 GOLANGCI_LINT_VERSION ?= v2.14.0
 # The tag `loop plugin:dev` would give the dir.
@@ -35,7 +37,7 @@ web:
 
 build:
 	docker build \
-		--build-context plugin-ui=$(LOOP)/app/packages/plugin-ui \
+		--secret id=NODE_AUTH_TOKEN,env=NODE_AUTH_TOKEN \
 		-t $(TAG) $(DIR)
 
 install: build
