@@ -16,9 +16,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # The plugins build against Loop's SDKs from a checkout next to this repo.
-  # Set the LOOP_REF repository variable to build against a branch or tag of
-  # Loop other than main.
+  # Panels on @loop/plugin-ui build against it from a Loop checkout next to
+  # this repo; the Go SDK is a regular module. Set the LOOP_REF repository
+  # variable to build against a branch or tag of Loop other than main.
   LOOP_REPOSITORY: radutopala/loop
   LOOP_REF: ${{ vars.LOOP_REF || 'main' }}
 
@@ -64,8 +64,8 @@ jobs:
       run:
         working-directory: loop-plugins/${{ matrix.dir }}
     steps:
-      # This repo and Loop side by side, as go.mod's replace and the UI's
-      # file: dependency on @loop/plugin-ui expect.
+      # This repo and Loop side by side, as a panel's file: dependency on
+      # @loop/plugin-ui expects.
       - uses: actions/checkout@v4
         with:
           path: loop-plugins
@@ -165,7 +165,6 @@ jobs:
           context: ${{ env.DIR }}
           platforms: linux/amd64,linux/arm64
           build-contexts: |
-            pluginsdk=${{ github.workspace }}/loop/pluginsdk
             plugin-ui=${{ github.workspace }}/loop/app/packages/plugin-ui
           push: ${{ env.PUBLISH == 'true' }}
           provenance: false

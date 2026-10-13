@@ -14,17 +14,23 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 
 ## Working on a plugin
 
-Plugins use the Go SDK in the Loop repo (`pluginsdk/`). Until it's published,
-`go.mod` replaces it with a Loop checkout next to this repo
-(`../loop/pluginsdk`), and the Docker build takes it as a named build context.
+Plugins use Loop's Go SDK, the `github.com/radutopala/loop/pluginsdk` module,
+as a regular dependency; `go get github.com/radutopala/loop/pluginsdk@<commit or tag>`
+moves a plugin to a newer one.
+
+```sh
+make check                 # go vet/test, golangci-lint and the web checks
+make install               # build the image and install it as a dev plugin
+```
+
+or by hand:
 
 ```sh
 cd plugins/cogtest
 go test ./...
 (cd web && npm ci && npm run typecheck && npm test && npm run lint)
-docker run --rm -v "$PWD":/src -v "$PWD/../../../loop/pluginsdk":/loop/pluginsdk -w /src \
-  golangci/golangci-lint:v2.14.0 golangci-lint run ./...
-docker build --build-context pluginsdk=../../../loop/pluginsdk -t loop-plugin-dev/cogtest:latest .
+docker run --rm -v "$PWD":/src -w /src golangci/golangci-lint:v2.14.0 golangci-lint run ./...
+docker build -t loop-plugin-dev/cogtest:latest .
 ```
 
 cogtest's panel is a React app in `web/`. `npm run build` bundles it into
@@ -48,9 +54,9 @@ for every `plugins/<id>/` and `template/`: `go vet`, `go test -race`,
 golangci-lint (when the dir has a `.golangci.yml`), the panel's `npm ci`,
 lint, typecheck, tests and build, the UI conformance tests (`-tags ui`, in
 headless Chrome), and a `linux/amd64` + `linux/arm64` image build. It checks
-out Loop next to this repo so the relative `replace` and `file:` paths
-resolve; set the repository variable `LOOP_REF` to build against a Loop
-branch or tag other than `main`.
+out Loop next to this repo so a panel's `file:` dependency on
+`@loop/plugin-ui` resolves; set the repository variable `LOOP_REF` to build
+against a Loop branch or tag other than `main`.
 
 To publish a plugin, bump `version` in its `plugin.json`, then push a tag
 `<id>/v<version>`:

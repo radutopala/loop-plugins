@@ -3,7 +3,7 @@ module github.com/radutopala/loop-plugins/template
 go 1.27
 
 require (
-	github.com/radutopala/loop/pluginsdk v0.0.0-00010101000000-000000000000
+	github.com/radutopala/loop/pluginsdk v0.0.0-20261013084342-fa5152c7ad39
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -22,7 +22,3 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// The SDK isn't published yet; build against a Loop checkout next to this
-// repo. The Dockerfile takes it as the pluginsdk build context.
-replace github.com/radutopala/loop/pluginsdk => ../../loop/pluginsdk
