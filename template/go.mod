@@ -3,7 +3,7 @@ module github.com/radutopala/loop-plugins/template
 go 1.27
 
 require (
-	github.com/radutopala/loop/pluginsdk v0.0.0-20261013084342-fa5152c7ad39
+	github.com/radutopala/loop/pluginsdk v0.0.0-20261013102524-d5f5f33f3747
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -16,7 +16,7 @@ require (
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
-	github.com/tailscale/hujson v0.0.0-20260302212456-ecc657c15afd // indirect
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 )
