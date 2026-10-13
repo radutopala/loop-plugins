@@ -63,9 +63,9 @@
       },
     },
   ],
-  // Each project enabling cogtest gets a 9:00 task for the daily quiz, off
-  // until the owner turns it on, since each quiz is an agent run.
-  "actions": [{ "id": "daily", "default_schedule": { "type": "cron", "schedule": "0 9 * * *", "enabled": false } }],
+  // The daily quiz runs at 9:00 in each project whose config asks for it
+  // with plugins.cogtest.schedules.daily, since each quiz is an agent run.
+  "actions": [{ "id": "daily", "default_schedule": { "type": "cron", "schedule": "0 9 * * *" } }],
   "settings": {
     "question_count": {
       "type": "integer",
