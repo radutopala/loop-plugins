@@ -18,9 +18,9 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 - Go 1.27, Node 24 and Docker to build and test.
 - A [Loop](https://github.com/radutopala/loop) install to run a plugin
   (`loop plugin:install`).
-- For a panel on `@radutopala/plugin-ui`, such as the template's: a GitHub
-  token with `read:packages` in `NODE_AUTH_TOKEN`, since GitHub Packages
-  wants one even for public packages. The Makefile takes the GitHub CLI's
+- For a panel on `@radutopala/plugin-ui`, as cogtest's and the template's
+  are: a GitHub token with `read:packages` in `NODE_AUTH_TOKEN`, since
+  GitHub Packages wants one even for public packages. The Makefile takes the GitHub CLI's
   (`gh auth refresh -s read:packages` adds the scope).
 
 ## Working on a plugin
@@ -80,9 +80,10 @@ job, the only one that can write packages, fails if the tag doesn't match
 the manifest's id and version or that version is already published, and
 pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest` with
 the workflow's `GITHUB_TOKEN`. The template is never published. Actions are
-pinned to commit SHAs; Dependabot keeps them, the Go modules and the npm
-packages of panels without `@radutopala/plugin-ui` current (GitHub
-Packages would need a token in a Dependabot secret).
+pinned to commit SHAs; Dependabot keeps them and the Go modules current.
+It leaves the panels' npm packages alone: they install
+`@radutopala/plugin-ui` from GitHub Packages, which would need a token in a
+Dependabot secret.
 
 Images are signed by digest with cosign when these repository secrets are
 set; without them the image is pushed unsigned and the run notes it:

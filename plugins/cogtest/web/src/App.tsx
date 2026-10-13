@@ -1,5 +1,5 @@
+import { ApiError, type ApiResponse, type Bridge, type PluginEvent, syncTheme } from "@radutopala/plugin-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ApiResponse, applyTheme, Bridge, errorOf, type PluginEvent } from "./bridge";
 import { HistoryView } from "./HistoryView";
 import { TodayView } from "./TodayView";
 import { paneTitle } from "./title";
@@ -17,8 +17,8 @@ interface Status {
 /** A view's data: loading (undefined), loaded, or the error it failed with. */
 type Loaded<T> = { data: T } | { error: string } | undefined;
 
-async function expectOK<T>(res: ApiResponse<T>, ...ok: number[]): Promise<T> {
-  if (!(ok.length ? ok : [200]).includes(res.status)) throw new Error(errorOf(res));
+function expectOK<T>(res: ApiResponse<T>, ...ok: number[]): T {
+  if (!(ok.length ? ok : [200]).includes(res.status)) throw new ApiError(res.status, res.body);
   return res.body;
 }
 
@@ -26,7 +26,7 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function App({ port }: { port: Promise<MessagePort> }) {
+export function App({ bridge: connecting }: { bridge: Promise<Bridge> }) {
   const [bridge, setBridge] = useState<Bridge | null>(null);
   const [tab, setTab] = useState<Tab>("today");
   const [today, setToday] = useState<Loaded<Today>>();
@@ -44,7 +44,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
 
   const loadCurrent = useCallback(async (b: Bridge) => {
     try {
-      setToday({ data: await expectOK(await b.api<Today>("GET", "quizzes/current")) });
+      setToday({ data: await b.api.get<Today>("quizzes/current") });
     } catch (err) {
       setToday({ error: message(err) });
     }
@@ -52,7 +52,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
 
   const loadHistory = useCallback(async (b: Bridge) => {
     try {
-      setHistory({ data: await expectOK(await b.api<History>("GET", "history")) });
+      setHistory({ data: await b.api.get<History>("history") });
     } catch (err) {
       setHistory({ error: message(err) });
     }
@@ -61,7 +61,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
   const loadQuiz = useCallback(
     async (id: number) => {
       if (!bridge) throw new Error("not connected to Loop");
-      return expectOK(await bridge.api<Quiz>("GET", `quizzes/${id}`));
+      return bridge.api.get<Quiz>(`quizzes/${id}`);
     },
     [bridge],
   );
@@ -69,7 +69,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
   const loadSettings = useCallback(
     async (b: Bridge) => {
       try {
-        setSettings(await expectOK(await b.api<Settings>("GET", "settings")));
+        setSettings(await b.api.get<Settings>("settings"));
       } catch (err) {
         setSettings({ model: "", effort: "" });
         showStatus(`Couldn't load settings: ${message(err)}`, true);
@@ -90,13 +90,13 @@ export function App({ port }: { port: Promise<MessagePort> }) {
 
   useEffect(() => {
     let cancelled = false;
-    port.then(async (p) => {
+    connecting.then(async (b) => {
       if (cancelled) return;
-      const b = new Bridge(p, { onTheme: applyTheme, onEvent: (ev) => onEvent.current(ev) });
-      b.call<Parameters<typeof applyTheme>[0]>("theme.get").then(applyTheme, () => {});
+      b.events.on((ev) => onEvent.current(ev));
+      syncTheme(b).catch(() => {});
       let first: Tab = "today";
       try {
-        const saved = await b.call<{ tab?: string } | null>("state.get");
+        const saved = await b.state.get<{ tab?: string }>();
         if (saved?.tab === "today" || saved?.tab === "history") first = saved.tab;
       } catch {
         // No saved state; keep the default tab.
@@ -110,7 +110,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
     return () => {
       cancelled = true;
     };
-  }, [port, loadCurrent, loadHistory, loadSettings]);
+  }, [connecting, loadCurrent, loadHistory, loadSettings]);
 
   // While a quiz generates, poll in case the ready event is missed.
   // Each load of today's quiz arms the next poll.
@@ -125,7 +125,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
   // ui.set_title just keeps the panel's label.
   const title = paneTitle(today && "data" in today ? today.data : null);
   useEffect(() => {
-    bridge?.call("ui.set_title", { title }).catch(() => {});
+    bridge?.ui.setTitle(title).catch(() => {});
   }, [bridge, title]);
 
   // Today's quiz on screen clears its badge on the channel's row: once per
@@ -139,7 +139,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
     const io = new IntersectionObserver((entries) => {
       if (seenQuiz.current === readyQuiz || !entries.some((e) => e.isIntersecting)) return;
       seenQuiz.current = readyQuiz;
-      bridge.api("POST", "quizzes/current/seen").catch(() => {});
+      bridge.api.post("quizzes/current/seen").catch(() => {});
     });
     io.observe(el);
     return () => io.disconnect();
@@ -148,7 +148,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
   const selectTab = (next: Tab) => {
     setTab(next);
     if (!bridge) return;
-    bridge.call("state.set", { value: { tab: next } }).catch(() => {});
+    bridge.state.set({ tab: next }).catch(() => {});
     if (next === "history") loadHistory(bridge);
   };
 
@@ -156,7 +156,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
     if (!bridge) return;
     setSettings(next);
     try {
-      await expectOK(await bridge.api("PUT", "settings", next));
+      await bridge.api.put("settings", next);
       showStatus("Saved. The next quiz uses these settings.");
     } catch (err) {
       showStatus(`Couldn't save settings: ${message(err)}`, true);
@@ -168,7 +168,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
     if (!bridge) return;
     setStarting(true);
     try {
-      const res = await bridge.api("POST", "quizzes", {});
+      const res = await bridge.api.request("POST", "quizzes", {});
       if (res.status === 409) showStatus("A quiz is already being written.");
       else {
         await expectOK(res, 200, 202);
@@ -185,7 +185,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
   const answer = async (q: Question, chosen: number): Promise<boolean> => {
     if (!bridge) return false;
     try {
-      const res = await bridge.api<Grade>("POST", "attempts", { question_id: q.id, chosen_index: chosen });
+      const res = await bridge.api.request<Grade>("POST", "attempts", { question_id: q.id, chosen_index: chosen });
       if (res.status === 409) {
         await loadCurrent(bridge);
         return true;
@@ -199,7 +199,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
         return { data: { ...cur.data, quiz: { ...quiz, score, questions } } };
       });
       // The summary card follows the answer.
-      bridge.api<Today>("GET", "quizzes/current").then(
+      bridge.api.request<Today>("GET", "quizzes/current").then(
         (r) => {
           if (r.status !== 200) return;
           setToday((cur) => (cur && "data" in cur ? { data: { ...cur.data, summary: r.body.summary } } : cur));
@@ -216,7 +216,7 @@ export function App({ port }: { port: Promise<MessagePort> }) {
   const openFile = async (path: string, line: number) => {
     if (!bridge) return;
     try {
-      await bridge.call("ui.open_file", { path, line });
+      await bridge.ui.openFile(path, line);
     } catch (err) {
       showStatus(`Couldn't open ${path}: ${message(err)}`, true);
     }

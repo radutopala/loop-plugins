@@ -1,8 +1,8 @@
+import { connect } from "@radutopala/plugin-ui";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
-import { listen } from "./bridge";
 
-// Listen before rendering: Loop hands the port over as the frame loads.
-const port = listen();
+// Connect before rendering: Loop hands the port over as the frame loads.
+const bridge = connect();
 const root = document.getElementById("root");
-if (root) createRoot(root).render(<App port={port} />);
+if (root) createRoot(root).render(<App bridge={bridge} />);

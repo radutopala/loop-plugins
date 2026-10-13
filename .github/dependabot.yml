@@ -11,12 +11,5 @@ updates:
     # Loop's SDK moves with Loop's releases, not on a schedule.
     ignore:
       - dependency-name: github.com/radutopala/loop/pluginsdk
-  # Only panels without @radutopala/plugin-ui: reaching GitHub Packages
-  # would take a token in a Dependabot secret.
-  - package-ecosystem: npm
-    directories: ["/plugins/cogtest/web"]
-    schedule:
-      interval: monthly
-    groups:
-      web:
-        patterns: ["*"]
+  # No npm entry: every panel installs @radutopala/plugin-ui from GitHub
+  # Packages, which would take a token in a Dependabot secret.

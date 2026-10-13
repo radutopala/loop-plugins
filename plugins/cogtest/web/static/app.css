@@ -1,5 +1,5 @@
 /* Loop's theme variables win when the host sends them; the fallbacks follow
-   the mode (data-mode on the root, or the system scheme before the host
+   the mode (data-theme on the root, or the system scheme before the host
    answers). */
 :root {
   --cg-bg: #ffffff;
@@ -15,7 +15,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-mode]) {
+  :root:not([data-theme]) {
     --cg-bg: #1e1f22;
     --cg-surface: #2b2d31;
     --cg-fg: #e6e6e6;
@@ -29,7 +29,7 @@
   }
 }
 
-:root[data-mode="dark"] {
+:root[data-theme="dark"] {
   --cg-bg: #1e1f22;
   --cg-surface: #2b2d31;
   --cg-fg: #e6e6e6;

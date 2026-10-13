@@ -93,10 +93,11 @@ jobs:
           npm run --if-present test
           npm run build
 
-      # The UI conformance check (tests built with -tags ui, such as the
-      # template's TestUI) loads the built panels in headless Chrome under
-      # Loop's content security policy. Ubuntu's AppArmor keeps Chrome's
-      # sandbox from starting unless unprivileged user namespaces are allowed.
+      # The UI conformance check (tests built with -tags ui, such as
+      # cogtest's and the template's TestUI) loads the built panels and
+      # cards in headless Chrome under Loop's content security policy.
+      # Ubuntu's AppArmor keeps Chrome's sandbox from starting unless
+      # unprivileged user namespaces are allowed.
       - name: UI conformance
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
