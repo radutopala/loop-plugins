@@ -1,6 +1,6 @@
 // The summary card: draws the quiz results Loop hands over in context.get
 // and sizes its frame to them.
-import { connect, syncTheme } from "@radutopala/plugin-ui";
+import { connect, syncTheme } from "@radutopala/loop-plugin-ui";
 import { boxText, type CardData, type CardQuestion, dateText, fileText, moveKind, parseCard, scoreText, streakText } from "./card";
 import { areaLabel } from "./title";
 

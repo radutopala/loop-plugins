@@ -9,7 +9,7 @@
     "lint": "biome check ."
   },
   "dependencies": {
-    "@radutopala/plugin-ui": "^0.1.0",
+    "@radutopala/loop-plugin-ui": "^0.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

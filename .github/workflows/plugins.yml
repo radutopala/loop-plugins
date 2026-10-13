@@ -43,10 +43,6 @@ jobs:
     needs: discover
     name: ${{ matrix.dir }}
     runs-on: ubuntu-latest
-    # A panel on @radutopala/plugin-ui installs it from GitHub Packages.
-    permissions:
-      contents: read
-      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -84,8 +80,6 @@ jobs:
       - name: Web lint, typecheck, test and build
         if: hashFiles(format('{0}/web/package-lock.json', env.DIR)) != ''
         working-directory: ${{ env.DIR }}/web
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm ci
           npm run --if-present lint
@@ -111,8 +105,6 @@ jobs:
         with:
           context: ${{ env.DIR }}
           platforms: linux/amd64,linux/arm64
-          secrets: |
-            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           push: false
           provenance: false
           cache-from: type=gha,scope=${{ matrix.dir }}
@@ -189,8 +181,6 @@ jobs:
         with:
           context: ${{ env.DIR }}
           platforms: linux/amd64,linux/arm64
-          secrets: |
-            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           push: true
           provenance: false
           tags: |

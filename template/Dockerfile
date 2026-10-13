@@ -1,15 +1,12 @@
-# syntax=docker/dockerfile:1
-# Build with a GitHub token that can read packages in NODE_AUTH_TOKEN, for
-# the panel SDK on GitHub Packages:
-#   docker build --secret id=NODE_AUTH_TOKEN,env=NODE_AUTH_TOKEN \
-#     -t loop-plugin-dev/example:latest .
+# Build with:
+#   docker build -t loop-plugin-dev/example:latest .
 
 # The UI and the binary build on the build machine's platform: the UI is
 # the same for every platform, and Go cross-compiles.
 FROM --platform=$BUILDPLATFORM node:24-alpine AS web
 WORKDIR /web
-COPY web/package.json web/package-lock.json web/.npmrc ./
-RUN --mount=type=secret,id=NODE_AUTH_TOKEN,env=NODE_AUTH_TOKEN npm ci
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
 COPY web/ ./
 RUN npm run build
 

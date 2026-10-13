@@ -1,4 +1,4 @@
-import { connect } from "@radutopala/plugin-ui";
+import { connect } from "@radutopala/loop-plugin-ui";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 
