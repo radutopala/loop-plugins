@@ -80,7 +80,8 @@ the manifest's id and version or that version is already published, and
 pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest` with
 the workflow's `GITHUB_TOKEN`. The template is never published. Actions are
 pinned to commit SHAs; Dependabot keeps them, the Go modules and the npm
-packages current.
+packages of panels without `@loop/plugin-ui` current (it can't reach that
+package's `file:` path).
 
 Images are signed by digest with cosign when these repository secrets are
 set; without them the image is pushed unsigned and the run notes it:
