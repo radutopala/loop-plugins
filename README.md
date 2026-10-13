@@ -2,8 +2,7 @@
 
 Plugins for [Loop](https://github.com/radutopala/loop). Each plugin lives in
 `plugins/<id>/` and is a Docker image that follows Loop's plugin contract
-([`docs/plugins.md`](https://github.com/radutopala/loop/blob/main/docs/plugins.md)
-in the Loop repo): a manifest at `/loop-plugin/plugin.json`,
+(`docs/plugins.md` in the Loop repo): a manifest at `/loop-plugin/plugin.json`,
 an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 `/loop-plugin/ui/`.
 
@@ -12,14 +11,6 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 | Plugin | What it does |
 | --- | --- |
 | [`cogtest`](plugins/cogtest) | A daily multiple-choice quiz about the channel's code. A read-only agent writes questions anchored in real lines, a panel asks them, per-area mastery is tracked with Leitner boxes, and missed questions come back while their code is unchanged. A project gets a daily task for it once Settings → Plugins turns its schedule on. |
-
-## Requirements
-
-- Go 1.27, Node 24 and Docker to build and test.
-- A [Loop](https://github.com/radutopala/loop) install to run a plugin
-  (`loop plugin:install`).
-- For a panel on `@loop/plugin-ui`, such as the template's: a Loop checkout
-  next to this repo (`../loop`), since the package isn't published yet.
 
 ## Working on a plugin
 
@@ -74,13 +65,10 @@ To publish a plugin, bump `version` in its `plugin.json`, then push a tag
 git tag cogtest/v0.6.0 && git push origin cogtest/v0.6.0
 ```
 
-The tag runs the same checks for that plugin only; then a separate publish
-job, the only one that can write packages, fails if the tag doesn't match
-the manifest's id and version or that version is already published, and
-pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest` with
-the workflow's `GITHUB_TOKEN`. The template is never published. Actions are
-pinned to commit SHAs; Dependabot keeps them, the Go modules and the npm
-packages current.
+The tag runs the same checks for that plugin only, fails if the tag doesn't
+match the manifest's id and version or that version is already published,
+and pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest`
+with the workflow's `GITHUB_TOKEN`. The template is never published.
 
 Images are signed by digest with cosign when these repository secrets are
 set; without them the image is pushed unsigned and the run notes it:
@@ -88,9 +76,5 @@ set; without them the image is pushed unsigned and the run notes it:
 - `COSIGN_PRIVATE_KEY`: a cosign private key (`cosign generate-key-pair`).
 - `COSIGN_PASSWORD`: its password.
 
-Verify a signed image with the key pair's public key:
+Verify a published image with
 `cosign verify --key cosign.pub ghcr.io/radutopala/loop-plugin-<id>:<version>`.
-
-## License
-
-Apache License 2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).

@@ -1,7 +1,3 @@
 *.db
 *.db-wal
 *.db-shm
-
-# Loop's per-project files
-.loop/
-.mcp.json
