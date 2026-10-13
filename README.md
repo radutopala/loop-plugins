@@ -85,14 +85,16 @@ It leaves the panels' npm packages alone: they install
 `@radutopala/plugin-ui` from GitHub Packages, which would need a token in a
 Dependabot secret.
 
-Images are signed by digest with cosign when these repository secrets are
-set; without them the image is pushed unsigned and the run notes it:
+Each published image gets a [SLSA build provenance
+attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations)
+for its digest: the repository, workflow, commit and trigger that built it,
+signed through Sigstore with the publish job's OIDC token, so no keys or
+secrets are involved. GitHub stores it, and it's also pushed to GHCR next to
+the image. Verify an image with:
 
-- `COSIGN_PRIVATE_KEY`: a cosign private key (`cosign generate-key-pair`).
-- `COSIGN_PASSWORD`: its password.
-
-Verify a signed image with the key pair's public key:
-`cosign verify --key cosign.pub ghcr.io/radutopala/loop-plugin-<id>:<version>`.
+```sh
+gh attestation verify oci://ghcr.io/radutopala/loop-plugin-<id>:<version> --repo radutopala/loop-plugins
+```
 
 ## License
 
