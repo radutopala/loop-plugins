@@ -80,10 +80,10 @@ job, the only one that can write packages, fails if the tag doesn't match
 the manifest's id and version or that version is already published, and
 pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest` with
 the workflow's `GITHUB_TOKEN`. The template is never published. Actions are
-pinned to commit SHAs; Dependabot keeps them and the Go modules current.
-It leaves the panels' npm packages alone: they install
-`@radutopala/plugin-ui` from GitHub Packages, which would need a token in a
-Dependabot secret.
+pinned to commit SHAs; Dependabot keeps them, the Go modules and the
+panels' npm packages current. It reaches `@radutopala/plugin-ui` on GitHub
+Packages with the `GH_PACKAGES_TOKEN` Dependabot secret, a classic token
+with only `read:packages`.
 
 Each published image gets a [SLSA build provenance
 attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations)
