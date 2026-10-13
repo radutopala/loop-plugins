@@ -20,10 +20,22 @@ updates:
     ignore:
       - dependency-name: github.com/radutopala/loop/pluginsdk
   - package-ecosystem: npm
-    directories: ["/plugins/*/web", "/template/web"]
+    directories: ["/plugins/*/web"]
     registries: [github-packages]
     schedule:
       interval: monthly
     groups:
       web:
         patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /template/web
+    registries: [github-packages]
+    schedule:
+      interval: monthly
+    groups:
+      web:
+        patterns: ["*"]
+    # typescript-eslint supports TypeScript only up to 6.0.
+    ignore:
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
