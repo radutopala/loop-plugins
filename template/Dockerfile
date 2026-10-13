@@ -1,10 +1,10 @@
-# Build with Loop's SDKs as named contexts, from a Loop checkout:
+# Build with Loop's panel SDK as a named context, from a Loop checkout:
 #   docker build \
-#     --build-context pluginsdk=<loop>/pluginsdk \
 #     --build-context plugin-ui=<loop>/app/packages/plugin-ui \
 #     -t loop-plugin-dev/example:latest .
-# The stages lay the sources out as the repos are on disk, under /ws, so the
-# relative paths in go.mod and web/package.json reach the SDKs.
+# The web stage lays the sources out as the repos are on disk, under /ws, so
+# the relative path in web/package.json reaches the SDK. The Go SDK is a
+# regular module dependency.
 
 # The UI and the binary build on the build machine's platform: the UI is
 # the same for every platform, and Go cross-compiles.
@@ -19,8 +19,7 @@ RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
-COPY --from=pluginsdk . /ws/loop/pluginsdk
-WORKDIR /ws/loop-plugins/template
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .

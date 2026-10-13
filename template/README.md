@@ -16,9 +16,10 @@ plugin usually needs:
   check against a fake Loop, and `ui_test.go` (build tag `ui`) loads the
   built panel in headless Chrome under Loop's content security policy.
 
-Like the plugins, it builds against a Loop checkout next to this repo
-(`../loop`): `go.mod` replaces `pluginsdk` with it, and `web/package.json`
-installs `@loop/plugin-ui` from it.
+The Go SDK, `github.com/radutopala/loop/pluginsdk`, is a regular module
+dependency. The panel SDK, `@loop/plugin-ui`, isn't published yet:
+`web/package.json` installs it from a Loop checkout next to this repo
+(`../loop`).
 
 ## Starting a plugin
 
@@ -27,23 +28,22 @@ template/new.sh my-plugin
 ```
 
 copies the template to `plugins/my-plugin` and renames it: the manifest id,
-the Go module path, the image name, and the relative paths to the Loop
-checkout, which are one dir deeper there. Then edit `plugin.json` (name,
+the Go module path, the image name, and the relative path to the Loop
+checkout, which is one dir deeper there. Then edit `plugin.json` (name,
 description, capabilities, tools, actions, settings, panels), replace the
 example code, and add the plugin to the table in the root README.
 
 ## Building and testing
 
-From `plugins/<id>` (from `template/`, drop one `../` from each Loop path):
+From `plugins/<id>` (from `template/`, drop one `../` from the Loop path):
 
 ```sh
 go test -race ./...
 (cd web && npm ci && npm run lint && npm run typecheck && npm test && npm run build)
 go test -tags ui -run UI ./...   # needs web/dist and Chrome
-docker run --rm -v "$PWD":/src -v "$PWD/../../../loop/pluginsdk":/loop/pluginsdk -w /src \
+docker run --rm -v "$PWD":/src -w /src \
   golangci/golangci-lint:v2.14.0 golangci-lint run --build-tags ui ./...
 docker build \
-  --build-context pluginsdk=../../../loop/pluginsdk \
   --build-context plugin-ui=../../../loop/app/packages/plugin-ui \
   -t loop-plugin-dev/<id>:latest .
 loop plugin:install --dev --yes loop-plugin-dev/<id>:latest

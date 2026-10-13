@@ -7,9 +7,6 @@ RUN npm run build
 
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-# go.mod replaces the SDK with ../../../loop/pluginsdk, which is /loop/pluginsdk
-# from /src; build with --build-context pluginsdk=<loop checkout>/pluginsdk.
-COPY --from=pluginsdk . /loop/pluginsdk
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .

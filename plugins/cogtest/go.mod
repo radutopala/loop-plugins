@@ -3,7 +3,7 @@ module github.com/radutopala/loop-plugins/plugins/cogtest
 go 1.27
 
 require (
-	github.com/radutopala/loop/pluginsdk v0.0.0-00010101000000-000000000000
+	github.com/radutopala/loop/pluginsdk v0.0.0-20261013084342-fa5152c7ad39
 	github.com/stretchr/testify v1.11.1
 	modernc.org/sqlite v1.52.0
 )
@@ -31,7 +31,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-// The SDK isn't published yet; build against a Loop checkout next to this
-// repo. The Dockerfile takes it as the pluginsdk build context.
-replace github.com/radutopala/loop/pluginsdk => ../../../loop/pluginsdk

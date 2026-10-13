@@ -1,7 +1,7 @@
 #!/bin/sh
 # Copies the template to plugins/<id> and renames it: the manifest's id, the
 # Go module path, the image name, and the relative paths to the Loop
-# checkout, which sit one dir deeper there.
+# checkout for the panel SDK, which sit one dir deeper there.
 set -eu
 
 id=${1:-}
@@ -29,7 +29,6 @@ edit() { # edit <sed expression> <file>...: sed -i that works on GNU and BSD sed
 }
 edit "s#\"id\": \"example\"#\"id\": \"$id\"#" plugin.json
 edit "s#loop-plugins/template#loop-plugins/plugins/$id#g" go.mod Dockerfile $(find . -name '*.go')
-edit "s#=> ../../loop/pluginsdk#=> ../../../loop/pluginsdk#" go.mod
 edit "s#loop-plugin-dev/example#loop-plugin-dev/$id#" Dockerfile
 edit "s#\"example #\"$id #" main.go
 edit "s#file:../../../loop/#file:../../../../loop/#; s#\"example-web\"#\"$id-web\"#" web/package.json

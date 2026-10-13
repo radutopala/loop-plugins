@@ -5,8 +5,8 @@
 #   make install PLUGIN=foo    # plugins/foo
 #   make check DIR=template    # any plugin dir
 #
-# The plugins build against the SDKs in a Loop checkout next to this repo;
-# LOOP points elsewhere.
+# A panel on @loop/plugin-ui builds against it in a Loop checkout next to
+# this repo; LOOP points elsewhere. The Go SDK is a regular module.
 
 PLUGIN ?= cogtest
 DIR ?= plugins/$(PLUGIN)
@@ -23,10 +23,8 @@ check: test lint web
 test:
 	cd $(DIR) && go vet ./... && go test -race ./...
 
-# go.mod replaces the SDK with a relative path that resolves to
-# /loop/pluginsdk from /src.
 lint:
-	docker run --rm -v "$(abspath $(DIR))":/src -v "$(LOOP)/pluginsdk":/loop/pluginsdk -w /src \
+	docker run --rm -v "$(abspath $(DIR))":/src -w /src \
 		golangci/golangci-lint:$(GOLANGCI_LINT_VERSION) golangci-lint run --build-tags ui ./...
 
 web:
@@ -37,7 +35,6 @@ web:
 
 build:
 	docker build \
-		--build-context pluginsdk=$(LOOP)/pluginsdk \
 		--build-context plugin-ui=$(LOOP)/app/packages/plugin-ui \
 		-t $(TAG) $(DIR)
 
