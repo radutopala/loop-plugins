@@ -15,13 +15,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  # Panels on @loop/plugin-ui build against it from a Loop checkout next to
-  # this repo; the Go SDK is a regular module. Set the LOOP_REF repository
-  # variable to build against a branch or tag of Loop other than main.
-  LOOP_REPOSITORY: radutopala/loop
-  LOOP_REF: ${{ vars.LOOP_REF || 'main' }}
-
 jobs:
   discover:
     runs-on: ubuntu-latest
@@ -50,26 +43,21 @@ jobs:
     needs: discover
     name: ${{ matrix.dir }}
     runs-on: ubuntu-latest
+    # A panel on @radutopala/plugin-ui installs it from GitHub Packages.
+    permissions:
+      contents: read
+      packages: read
     strategy:
       fail-fast: false
       matrix:
         dir: ${{ fromJSON(needs.discover.outputs.dirs) }}
     env:
-      DIR: loop-plugins/${{ matrix.dir }}
+      DIR: ${{ matrix.dir }}
     defaults:
       run:
-        working-directory: loop-plugins/${{ matrix.dir }}
+        working-directory: ${{ matrix.dir }}
     steps:
-      # This repo and Loop side by side, as a panel's file: dependency on
-      # @loop/plugin-ui expects.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: loop-plugins
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.LOOP_REPOSITORY }}
-          ref: ${{ env.LOOP_REF }}
-          path: loop
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -96,6 +84,8 @@ jobs:
       - name: Web lint, typecheck, test and build
         if: hashFiles(format('{0}/web/package-lock.json', env.DIR)) != ''
         working-directory: ${{ env.DIR }}/web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm ci
           npm run --if-present lint
@@ -103,10 +93,11 @@ jobs:
           npm run --if-present test
           npm run build
 
-      # The UI conformance check (tests built with -tags ui, such as the
-      # template's TestUI) loads the built panels in headless Chrome under
-      # Loop's content security policy. Ubuntu's AppArmor keeps Chrome's
-      # sandbox from starting unless unprivileged user namespaces are allowed.
+      # The UI conformance check (tests built with -tags ui, such as
+      # cogtest's and the template's TestUI) loads the built panels and
+      # cards in headless Chrome under Loop's content security policy.
+      # Ubuntu's AppArmor keeps Chrome's sandbox from starting unless
+      # unprivileged user namespaces are allowed.
       - name: UI conformance
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
@@ -120,8 +111,8 @@ jobs:
         with:
           context: ${{ env.DIR }}
           platforms: linux/amd64,linux/arm64
-          build-contexts: |
-            plugin-ui=${{ github.workspace }}/loop/app/packages/plugin-ui
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           push: false
           provenance: false
           cache-from: type=gha,scope=${{ matrix.dir }}
@@ -141,26 +132,17 @@ jobs:
       matrix:
         dir: ${{ fromJSON(needs.discover.outputs.dirs) }}
     env:
-      DIR: loop-plugins/${{ matrix.dir }}
+      DIR: ${{ matrix.dir }}
     defaults:
       run:
-        working-directory: loop-plugins/${{ matrix.dir }}
+        working-directory: ${{ matrix.dir }}
     steps:
-      # This repo and Loop side by side, as a panel's file: dependency on
-      # @loop/plugin-ui expects.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: loop-plugins
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.LOOP_REPOSITORY }}
-          ref: ${{ env.LOOP_REF }}
-          path: loop
 
       - name: Read the manifest
         id: manifest
         run: |
-          read_field() { node "$GITHUB_WORKSPACE/loop-plugins/.github/scripts/manifest.mjs" plugin.json "$1"; }
+          read_field() { node "$GITHUB_WORKSPACE/.github/scripts/manifest.mjs" plugin.json "$1"; }
           id=$(read_field id)
           version=$(read_field version)
           {
@@ -203,8 +185,8 @@ jobs:
         with:
           context: ${{ env.DIR }}
           platforms: linux/amd64,linux/arm64
-          build-contexts: |
-            plugin-ui=${{ github.workspace }}/loop/app/packages/plugin-ui
+          secrets: |
+            NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           push: true
           provenance: false
           tags: |

@@ -1,4 +1,4 @@
-import type { Bridge, BridgeStorage, PanelContext } from "@loop/plugin-ui";
+import type { Bridge, BridgeStorage, PanelContext } from "@radutopala/plugin-ui";
 import { useCallback, useEffect, useState } from "react";
 import { ago, plural } from "./format";
 import { parseRoute, type Route, routeHash } from "./route";

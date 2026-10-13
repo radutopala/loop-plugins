@@ -1,6 +1,6 @@
 // The summary card: draws the quiz results Loop hands over in context.get
 // and sizes its frame to them.
-import { applyTheme, Bridge, listen, type Theme } from "./bridge";
+import { connect, syncTheme } from "@radutopala/plugin-ui";
 import { boxText, type CardData, type CardQuestion, dateText, fileText, moveKind, parseCard, scoreText, streakText } from "./card";
 import { areaLabel } from "./title";
 
@@ -59,26 +59,25 @@ function render(root: HTMLElement, card: CardData | null, openFile: (path: strin
   }
 }
 
-// Listen before anything else: Loop hands the port over as the frame loads.
-const port = listen();
+// Connect before anything else: Loop hands the port over as the frame loads.
+const connecting = connect();
 const root = document.getElementById("root");
 
-port.then(async (p) => {
-  const bridge = new Bridge(p, { onTheme: applyTheme, onEvent: () => {} });
-  bridge.call<Theme>("theme.get").then(applyTheme, () => {});
+connecting.then(async (bridge) => {
+  syncTheme(bridge).catch(() => {});
   let sent = 0;
   const resize = () => {
     const height = Math.ceil(document.body.scrollHeight);
     if (height === sent) return;
     sent = height;
-    bridge.call("ui.resize", { height }).catch(() => {});
+    bridge.ui.resize(height).catch(() => {});
   };
   const openFile = (path: string, line?: number) => {
-    bridge.call("ui.open_file", line ? { path, line } : { path }).catch(() => {});
+    bridge.ui.openFile(path, line || undefined).catch(() => {});
   };
   let data: unknown = null;
   try {
-    data = (await bridge.call<{ data?: unknown } | null>("context.get"))?.data;
+    data = (await bridge.context.get()).data;
   } catch {
     // Drawn without data below.
   }

@@ -18,8 +18,10 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 - Go 1.27, Node 24 and Docker to build and test.
 - A [Loop](https://github.com/radutopala/loop) install to run a plugin
   (`loop plugin:install`).
-- For a panel on `@loop/plugin-ui`, such as the template's: a Loop checkout
-  next to this repo (`../loop`), since the package isn't published yet.
+- For a panel on `@radutopala/plugin-ui`, as cogtest's and the template's
+  are: a GitHub token with `read:packages` in `NODE_AUTH_TOKEN`, since
+  GitHub Packages wants one even for public packages. The Makefile takes the GitHub CLI's
+  (`gh auth refresh -s read:packages` adds the scope).
 
 ## Working on a plugin
 
@@ -62,10 +64,9 @@ Dockerfile, tests) to start from. `template/new.sh <id>` copies it to
 for every `plugins/<id>/` and `template/`: `go vet`, `go test -race`,
 golangci-lint (when the dir has a `.golangci.yml`), the panel's `npm ci`,
 lint, typecheck, tests and build, the UI conformance tests (`-tags ui`, in
-headless Chrome), and a `linux/amd64` + `linux/arm64` image build. It checks
-out Loop next to this repo so a panel's `file:` dependency on
-`@loop/plugin-ui` resolves; set the repository variable `LOOP_REF` to build
-against a Loop branch or tag other than `main`.
+headless Chrome), and a `linux/amd64` + `linux/arm64` image build. Panels
+install `@radutopala/plugin-ui` from GitHub Packages with the workflow's
+`GITHUB_TOKEN`.
 
 To publish a plugin, bump `version` in its `plugin.json`, then push a tag
 `<id>/v<version>`:
@@ -79,9 +80,10 @@ job, the only one that can write packages, fails if the tag doesn't match
 the manifest's id and version or that version is already published, and
 pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest` with
 the workflow's `GITHUB_TOKEN`. The template is never published. Actions are
-pinned to commit SHAs; Dependabot keeps them, the Go modules and the npm
-packages of panels without `@loop/plugin-ui` current (it can't reach that
-package's `file:` path).
+pinned to commit SHAs; Dependabot keeps them and the Go modules current.
+It leaves the panels' npm packages alone: they install
+`@radutopala/plugin-ui` from GitHub Packages, which would need a token in a
+Dependabot secret.
 
 Images are signed by digest with cosign when these repository secrets are
 set; without them the image is pushed unsigned and the run notes it:
