@@ -53,6 +53,7 @@ loop plugin:install --dev --yes loop-plugin-dev/<id>:latest
 Loop serves a panel's files under a strict content security policy: scripts
 and styles from the plugin's own bundle only, no inline scripts, no remote
 URLs, no `eval`. The panel talks to Loop and to its plugin only through
-`@radutopala/plugin-ui` (`connect`, `api`, `createStorage`). `web/eslint.config.js`
+`@radutopala/plugin-ui` (`connect`, `api`, `createStorage`). Biome
+(`web/biome.json`, with the remote-URL check in `web/panel-rules.grit`)
 flags remote URLs, `eval`-like calls, `fetch` and browser storage, and
 `ui_test.go` catches what slips past it.

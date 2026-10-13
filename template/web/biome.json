@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": {
+    "includes": ["**", "!dist", "!node_modules"]
+  },
+  "formatter": {
+    "includes": ["**", "!**/*.grit"],
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 160
+  },
+  "plugins": ["./panel-rules.grit"],
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "useExhaustiveDependencies": "error",
+        "useHookAtTopLevel": "error"
+      },
+      "security": {
+        "noGlobalEval": "error"
+      },
+      "nursery": {
+        "noImpliedEval": "error"
+      },
+      "style": {
+        "noRestrictedGlobals": {
+          "level": "error",
+          "options": {
+            "deniedGlobals": {
+              "fetch": "Call the plugin's /x API with bridge.api.",
+              "XMLHttpRequest": "Call the plugin's /x API with bridge.api.",
+              "WebSocket": "Listen for the plugin's events with bridge.events.on.",
+              "localStorage": "Use createStorage(bridge) from @radutopala/plugin-ui.",
+              "sessionStorage": "Use createStorage(bridge) from @radutopala/plugin-ui.",
+              "indexedDB": "Use bridge.state or the plugin's /x API."
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+language js
+
+// Loop serves a panel under a strict content security policy: scripts,
+// styles and images come from the plugin's own bundle only.
+or {
+  JsStringLiteralExpression() as $url where {
+    $url <: r"[\"']https?://.*",
+    register_diagnostic(span=$url, message="Remote URLs don't load in a plugin panel; bundle the file.")
+  },
+  JsxString() as $url where {
+    $url <: r"[\"']https?://.*",
+    register_diagnostic(span=$url, message="Remote URLs don't load in a plugin panel; bundle the file.")
+  },
+  JsTemplateChunkElement() as $url where {
+    $url <: r"https?://.*",
+    register_diagnostic(span=$url, message="Remote URLs don't load in a plugin panel; bundle the file.")
+  }
+}
