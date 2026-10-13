@@ -4,15 +4,9 @@
 #   make install               # build the image and install it as a dev plugin
 #   make install PLUGIN=foo    # plugins/foo
 #   make check DIR=template    # any plugin dir
-#
-# A panel on @radutopala/plugin-ui installs it from GitHub Packages with the
-# token in NODE_AUTH_TOKEN, the GitHub CLI's by default; it needs the
-# read:packages scope (gh auth refresh -s read:packages).
 
 PLUGIN ?= cogtest
 DIR ?= plugins/$(PLUGIN)
-NODE_AUTH_TOKEN ?= $(shell gh auth token 2>/dev/null)
-export NODE_AUTH_TOKEN
 LOOP_BIN ?= loop
 GOLANGCI_LINT_VERSION ?= v2.14.0
 # The tag `loop plugin:dev` would give the dir.
@@ -36,9 +30,7 @@ web:
 	fi
 
 build:
-	docker build \
-		--secret id=NODE_AUTH_TOKEN,env=NODE_AUTH_TOKEN \
-		-t $(TAG) $(DIR)
+	docker build -t $(TAG) $(DIR)
 
 install: build
 	$(LOOP_BIN) plugin:install --dev --yes $(TAG)

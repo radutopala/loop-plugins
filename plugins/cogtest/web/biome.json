@@ -32,8 +32,8 @@
               "fetch": "Call the plugin's /x API with bridge.api.",
               "XMLHttpRequest": "Call the plugin's /x API with bridge.api.",
               "WebSocket": "Listen for the plugin's events with bridge.events.on.",
-              "localStorage": "Use createStorage(bridge) from @radutopala/plugin-ui.",
-              "sessionStorage": "Use createStorage(bridge) from @radutopala/plugin-ui.",
+              "localStorage": "Use createStorage(bridge) from @radutopala/loop-plugin-ui.",
+              "sessionStorage": "Use createStorage(bridge) from @radutopala/loop-plugin-ui.",
               "indexedDB": "Use bridge.state or the plugin's /x API."
             }
           }

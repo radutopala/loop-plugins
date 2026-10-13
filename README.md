@@ -18,10 +18,6 @@ an HTTP server on `$LOOP_PLUGIN_PORT`, and optional UI panels under
 - Go 1.27, Node 24 and Docker to build and test.
 - A [Loop](https://github.com/radutopala/loop) install to run a plugin
   (`loop plugin:install`).
-- For a panel on `@radutopala/plugin-ui`, as cogtest's and the template's
-  are: a GitHub token with `read:packages` in `NODE_AUTH_TOKEN`, since
-  GitHub Packages wants one even for public packages. The Makefile takes the GitHub CLI's
-  (`gh auth refresh -s read:packages` adds the scope).
 
 ## Working on a plugin
 
@@ -64,9 +60,7 @@ Dockerfile, tests) to start from. `template/new.sh <id>` copies it to
 for every `plugins/<id>/` and `template/`: `go vet`, `go test -race`,
 golangci-lint (when the dir has a `.golangci.yml`), the panel's `npm ci`,
 lint, typecheck, tests and build, the UI conformance tests (`-tags ui`, in
-headless Chrome), and a `linux/amd64` + `linux/arm64` image build. Panels
-install `@radutopala/plugin-ui` from GitHub Packages with the workflow's
-`GITHUB_TOKEN`.
+headless Chrome), and a `linux/amd64` + `linux/arm64` image build.
 
 To publish a plugin, bump `version` in its `plugin.json`, then push a tag
 `<id>/v<version>`:
@@ -81,9 +75,7 @@ the manifest's id and version or that version is already published, and
 pushes `ghcr.io/radutopala/loop-plugin-<id>:<version>` and `:latest` with
 the workflow's `GITHUB_TOKEN`. The template is never published. Actions are
 pinned to commit SHAs; Dependabot keeps them, the Go modules and the
-panels' npm packages current. It reaches `@radutopala/plugin-ui` on GitHub
-Packages with the `GH_PACKAGES_TOKEN` Dependabot secret, a classic token
-with only `read:packages`.
+panels' npm packages current.
 
 Each published image gets a [SLSA build provenance
 attestation](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations)

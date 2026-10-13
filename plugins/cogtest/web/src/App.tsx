@@ -1,4 +1,4 @@
-import { ApiError, type ApiResponse, type Bridge, type PluginEvent, syncTheme } from "@radutopala/plugin-ui";
+import { ApiError, type ApiResponse, type Bridge, type PluginEvent, syncTheme } from "@radutopala/loop-plugin-ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HistoryView } from "./HistoryView";
 import { TodayView } from "./TodayView";
