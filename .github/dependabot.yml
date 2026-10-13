@@ -11,8 +11,10 @@ updates:
     # Loop's SDK moves with Loop's releases, not on a schedule.
     ignore:
       - dependency-name: github.com/radutopala/loop/pluginsdk
+  # Only panels without @loop/plugin-ui: Dependabot can't reach its file:
+  # path in a Loop checkout next to this repo until it's published.
   - package-ecosystem: npm
-    directories: ["/plugins/*/web", "/template/web"]
+    directories: ["/plugins/cogtest/web"]
     schedule:
       interval: monthly
     groups:
