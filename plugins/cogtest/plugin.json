@@ -2,7 +2,7 @@
 {
   "id": "cogtest",
   "name": "Cognitive test",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "api": "1",
   "capabilities": [
     "files.read",
