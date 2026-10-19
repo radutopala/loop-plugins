@@ -3,7 +3,7 @@ module github.com/radutopala/loop-plugins/plugins/cogtest
 go 1.27
 
 require (
-	github.com/radutopala/loop/pluginsdk v0.0.0-20261013102524-d5f5f33f3747
+	github.com/radutopala/loop/pluginsdk v0.0.0-20261019094638-9b5c6a5eb3b4
 	github.com/stretchr/testify v1.12.1
 	modernc.org/sqlite v1.60.1
 )

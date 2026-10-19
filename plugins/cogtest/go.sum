@@ -30,8 +30,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde h1:x0TT0RDC7UhAVbbWWBzr41ElhJx5tXPWkIHA2HWPRuw=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
-github.com/radutopala/loop/pluginsdk v0.0.0-20261013102524-d5f5f33f3747 h1:XvHGLCREmnfS/izcG/g4oOfmqNy9Dcpu62kP0L6aRq8=
-github.com/radutopala/loop/pluginsdk v0.0.0-20261013102524-d5f5f33f3747/go.mod h1:xlxrUXsknQE39PZWVBNW4OpFYvwXqflBUhWhi7dPAn0=
+github.com/radutopala/loop/pluginsdk v0.0.0-20261019094638-9b5c6a5eb3b4 h1:ZhlsyrTDnSd9FukVGtCQsBugL2aV2t0fEz+MQxzldbs=
+github.com/radutopala/loop/pluginsdk v0.0.0-20261019094638-9b5c6a5eb3b4/go.mod h1:xlxrUXsknQE39PZWVBNW4OpFYvwXqflBUhWhi7dPAn0=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/stretchr/objx v0.5.3 h1:jmXUvGomnU1o3W/V5h2VEradbpJDwGrzugQQvL0POH4=
