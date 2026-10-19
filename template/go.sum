@@ -18,8 +18,8 @@ github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80 h1:6Yzfa6GP0rIo/kUL
 github.com/ledongthuc/pdf v0.0.0-20220302134840-0c2507a12d80/go.mod h1:imJHygn/1yfhB7XSJJKlFZKl/J+dCPAknuiaGOshXAs=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde h1:x0TT0RDC7UhAVbbWWBzr41ElhJx5tXPWkIHA2HWPRuw=
 github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde/go.mod h1:nZgzbfBr3hhjoZnS66nKrHmduYNpc34ny7RK4z5/HM0=
-github.com/radutopala/loop/pluginsdk v0.0.0-20261013102524-d5f5f33f3747 h1:XvHGLCREmnfS/izcG/g4oOfmqNy9Dcpu62kP0L6aRq8=
-github.com/radutopala/loop/pluginsdk v0.0.0-20261013102524-d5f5f33f3747/go.mod h1:xlxrUXsknQE39PZWVBNW4OpFYvwXqflBUhWhi7dPAn0=
+github.com/radutopala/loop/pluginsdk v0.0.0-20261019094638-9b5c6a5eb3b4 h1:ZhlsyrTDnSd9FukVGtCQsBugL2aV2t0fEz+MQxzldbs=
+github.com/radutopala/loop/pluginsdk v0.0.0-20261019094638-9b5c6a5eb3b4/go.mod h1:xlxrUXsknQE39PZWVBNW4OpFYvwXqflBUhWhi7dPAn0=
 github.com/stretchr/objx v0.5.3 h1:jmXUvGomnU1o3W/V5h2VEradbpJDwGrzugQQvL0POH4=
 github.com/stretchr/objx v0.5.3/go.mod h1:rDQraq+vQZU7Fde9LOZLr8Tax6zZvy4kuNKF+QYS+U0=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=

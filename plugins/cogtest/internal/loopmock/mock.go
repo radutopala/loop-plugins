@@ -114,3 +114,25 @@ func (c *Client) OpenFile(ctx context.Context, path string, line int) (*pluginsd
 	r, _ := args.Get(0).(*pluginsdk.UIReply)
 	return r, args.Error(1)
 }
+
+func (c *Client) SetSwitch(ctx context.Context, id, threadID string, state pluginsdk.SwitchState) error {
+	return c.Called(ctx, id, threadID, state).Error(0)
+}
+
+func (c *Client) ResetSwitch(ctx context.Context, id, threadID string) error {
+	return c.Called(ctx, id, threadID).Error(0)
+}
+
+func (c *Client) LiveControl(ctx context.Context, threadID string, request map[string]any) (map[string]any, error) {
+	args := c.Called(ctx, threadID, request)
+	r, _ := args.Get(0).(map[string]any)
+	return r, args.Error(1)
+}
+
+func (c *Client) HoldLive(ctx context.Context, threadID string) error {
+	return c.Called(ctx, threadID).Error(0)
+}
+
+func (c *Client) ReleaseLive(ctx context.Context, threadID string) error {
+	return c.Called(ctx, threadID).Error(0)
+}
